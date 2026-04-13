@@ -1,0 +1,153 @@
+package expo.modules.docusign
+
+import android.app.Activity
+import android.content.Context
+import expo.modules.kotlin.Promise
+import expo.modules.kotlin.exception.Exceptions
+import expo.modules.kotlin.modules.Module
+import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.records.Field
+import expo.modules.kotlin.records.Record
+
+internal class DocuSignInitConfig : Record {
+  @Field
+  var integratorKey: String = ""
+
+  @Field
+  var environment: String = "demo"
+}
+
+internal class DocuSignAuthRecord : Record {
+  @Field
+  var accessToken: String = ""
+
+  @Field
+  var accountId: String = ""
+
+  @Field
+  var userId: String = ""
+
+  @Field
+  var userName: String = ""
+
+  @Field
+  var email: String = ""
+
+  @Field
+  var host: String = ""
+}
+
+internal class CaptiveSigningRecord : Record {
+  @Field
+  var envelopeId: String = ""
+
+  @Field
+  var recipientUserName: String = ""
+
+  @Field
+  var recipientEmail: String = ""
+
+  @Field
+  var recipientClientUserId: String = ""
+}
+
+class DocuSignModule : Module() {
+  override fun definition() = ModuleDefinition {
+    val context: Context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+
+    Name("DocuSign")
+
+    Events("onSigningComplete", "onSigningCancelled", "onSigningError")
+
+    OnCreate {
+      DocuSignManager.setModule(this@DocuSignModule)
+    }
+
+    AsyncFunction("initialize") { config: DocuSignInitConfig, promise: Promise ->
+      try {
+        val environment = DocuSignEnvironment.fromString(config.environment)
+        DocuSignManager.initialize(context, config.integratorKey, environment)
+        promise.resolve(null)
+      } catch (e: Exception) {
+        promise.reject("initialize_failed", e.message ?: "Unknown error", e)
+      }
+    }
+
+    AsyncFunction("loginWithAccessToken") { params: DocuSignAuthRecord, promise: Promise ->
+      DocuSignManager.loginWithAccessToken(
+        accessToken = params.accessToken,
+        accountId = params.accountId,
+        userId = params.userId,
+        userName = params.userName,
+        email = params.email,
+        host = params.host
+      ) { result ->
+        result.fold(
+          onSuccess = { promise.resolve(null) },
+          onFailure = { error ->
+            emitSigningError(null, "login_failed", error.message ?: "Unknown error")
+            promise.reject("login_failed", error.message ?: "Unknown error", error as? Exception)
+          }
+        )
+      }
+    }
+
+    AsyncFunction("presentCaptiveSigning") { params: CaptiveSigningRecord, promise: Promise ->
+      val activity: Activity = appContext.activityProvider?.currentActivity
+        ?: throw Exceptions.MissingActivity()
+
+      DocuSignManager.presentCaptiveSigning(
+        activity = activity,
+        envelopeId = params.envelopeId,
+        recipientUserName = params.recipientUserName,
+        recipientEmail = params.recipientEmail,
+        recipientClientUserId = params.recipientClientUserId
+      ) { result ->
+        result.fold(
+          onSuccess = { outcome ->
+            promise.resolve(
+              mapOf(
+                "status" to outcome.status,
+                "envelopeId" to outcome.envelopeId,
+                "errorCode" to outcome.errorCode,
+                "errorMessage" to outcome.errorMessage
+              )
+            )
+          },
+          onFailure = { error ->
+            emitSigningError(params.envelopeId, "signing_failed", error.message ?: "Unknown error")
+            promise.reject("signing_failed", error.message ?: "Unknown error", error as? Exception)
+          }
+        )
+      }
+    }
+
+    AsyncFunction("logout") { promise: Promise ->
+      DocuSignManager.logout()
+      promise.resolve(null)
+    }
+
+    AsyncFunction("isLoggedIn") { promise: Promise ->
+      promise.resolve(DocuSignManager.isLoggedIn())
+    }
+  }
+
+  internal fun emitSigningComplete(envelopeId: String) {
+    sendEvent("onSigningComplete", mapOf("envelopeId" to envelopeId))
+  }
+
+  internal fun emitSigningCancelled(envelopeId: String, reason: String?) {
+    sendEvent("onSigningCancelled", mapOf("envelopeId" to envelopeId, "reason" to reason))
+  }
+
+  internal fun emitSigningError(envelopeId: String?, errorCode: String, errorMessage: String) {
+    sendEvent(
+      "onSigningError",
+      mapOf(
+        "envelopeId" to envelopeId,
+        "errorCode" to errorCode,
+        "errorMessage" to errorMessage
+      )
+    )
+  }
+}
