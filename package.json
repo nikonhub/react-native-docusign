@@ -29,20 +29,15 @@
     "ios",
     "android"
   ],
-  "repository": "",
+  "repository": "https://github.com/goosehead/react-native-docusign",
   "bugs": {
-    "url": ""
+    "url": "https://github.com/goosehead/react-native-docusign/issues"
   },
   "author": "react-native-docusign contributors",
   "license": "MIT",
-  "homepage": "",
+  "homepage": "https://github.com/goosehead/react-native-docusign",
   "dependencies": {},
-  "devDependencies": {
-    "@types/react": "~19.1.1",
-    "expo-module-scripts": "^55.0.2",
-    "expo": "^55.0.14",
-    "react-native": "0.82.1"
-  },
+  "devDependencies": {},
   "peerDependencies": {
     "expo": "*",
     "react": "*",

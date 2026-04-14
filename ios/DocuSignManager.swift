@@ -7,20 +7,47 @@ internal enum DocuSignEnvironment: String {
   case production
 }
 
-internal final class DocuSignManager {
+internal struct DocuSignAccountInfo {
+  let accountId: String
+  let userId: String
+  let userName: String
+  let email: String
+}
+
+internal struct DocuSignSetupOptions {
+  let disablePoweredByBranding: Bool
+  let disableAppearance: Bool
+  let disableLocationPermission: Bool
+}
+
+internal final class DocuSignManager: NSObject {
   static let shared = DocuSignManager()
 
   private var isInitialized = false
   private var currentEnvelopeId: String?
   private weak var module: DocuSignModule?
 
-  private init() {}
+  private var integratorKey: String?
+  private var hostURL: URL?
+  private var environment: DocuSignEnvironment = .demo
+  private var hasLoggedIn = false
+  private var pendingCompletion: ((Result<SigningOutcome, Error>) -> Void)?
+
+  private let stateQueue = DispatchQueue(label: "com.goosehead.docusign.state")
+
+  private override init() {
+    super.init()
+  }
 
   func setModule(_ module: DocuSignModule) {
     self.module = module
   }
 
-  func initialize(integratorKey: String, environment: DocuSignEnvironment) throws {
+  func initialize(
+    integratorKey: String,
+    environment: DocuSignEnvironment,
+    options: DocuSignSetupOptions
+  ) throws {
     if isInitialized {
       return
     }
@@ -33,13 +60,35 @@ internal final class DocuSignManager {
       host = "https://www.docusign.net/restapi"
     }
 
-    DSMManager.setIntegratorKey(integratorKey)
-    DSMManager.setupSession(
-      withHostURL: URL(string: host),
-      sslPinningEnabled: true
-    )
+    guard let url = URL(string: host) else {
+      throw NotInitializedException()
+    }
 
-    registerNotificationObservers()
+    self.integratorKey = integratorKey
+    self.hostURL = url
+    self.environment = environment
+
+    let dispatchSetup: () -> Void = {
+      var configurations = DSMManager.defaultConfigurations() ?? [:]
+      if options.disablePoweredByBranding {
+        configurations[DSM_SETUP_POWERED_BY_DOCUSIGN_ENABLED] = DSM_SETUP_FALSE_VALUE
+      }
+      if options.disableAppearance {
+        configurations[DSM_SETUP_DISABLE_APPEARANCE] = DSM_SETUP_TRUE_VALUE
+      }
+      if options.disableLocationPermission {
+        configurations[DSM_SETUP_CAPTIVE_SIGNING_DISABLE_LOCATION_PERMISSION] = DSM_SETUP_TRUE_VALUE
+      }
+      DSMManager.setup(withConfiguration: configurations)
+      self.registerNotificationObservers()
+    }
+
+    if Thread.isMainThread {
+      dispatchSetup()
+    } else {
+      DispatchQueue.main.sync(execute: dispatchSetup)
+    }
+
     isInitialized = true
   }
 
@@ -50,15 +99,105 @@ internal final class DocuSignManager {
     userName: String,
     email: String,
     host: String,
-    completion: @escaping (Result<Void, Error>) -> Void
+    expiresIn: Int,
+    completion: @escaping (Result<DocuSignAccountInfo, Error>) -> Void
   ) throws {
-    guard isInitialized else {
+    guard isInitialized, self.integratorKey != nil, self.hostURL != nil else {
       throw NotInitializedException()
     }
 
-    guard let hostURL = URL(string: host) else {
-      throw LoginFailedException("Invalid host URL")
+    let needsUserInfo = accountId.isEmpty || userId.isEmpty || userName.isEmpty || email.isEmpty || host.isEmpty
+
+    if !needsUserInfo {
+      performLogin(
+        accessToken: accessToken,
+        accountId: accountId,
+        userId: userId,
+        userName: userName,
+        email: email,
+        hostOverride: host,
+        expiresIn: expiresIn,
+        completion: completion
+      )
+      return
     }
+
+    fetchUserInfo(accessToken: accessToken, preferredAccountId: accountId) { [weak self] result in
+      guard let self = self else { return }
+      switch result {
+      case .failure(let error):
+        completion(.failure(error))
+      case .success(let info):
+        self.performLogin(
+          accessToken: accessToken,
+          accountId: accountId.isEmpty ? info.accountId : accountId,
+          userId: userId.isEmpty ? info.userId : userId,
+          userName: userName.isEmpty ? info.userName : userName,
+          email: email.isEmpty ? info.email : email,
+          hostOverride: host.isEmpty ? info.host : host,
+          expiresIn: expiresIn,
+          completion: completion
+        )
+      }
+    }
+  }
+
+  private func performLogin(
+    accessToken: String,
+    accountId: String,
+    userId: String,
+    userName: String,
+    email: String,
+    hostOverride: String,
+    expiresIn: Int,
+    completion: @escaping (Result<DocuSignAccountInfo, Error>) -> Void
+  ) {
+    guard let integratorKey = self.integratorKey, let fallbackHost = self.hostURL else {
+      completion(.failure(NotInitializedException()))
+      return
+    }
+
+    let effectiveHost: URL
+    if !hostOverride.isEmpty, let override = URL(string: hostOverride) {
+      effectiveHost = override
+    } else {
+      effectiveHost = fallbackHost
+    }
+
+    let expiryDate: Date? = expiresIn > 0
+      ? Date(timeIntervalSinceNow: TimeInterval(expiresIn))
+      : nil
+
+    // Clear any stale SDK state from prior failed login attempts.
+    _ = DSMManager.logout()
+    DSMManager.clearAllWebCookies()
+    self.hasLoggedIn = false
+
+    let tokenAzp = Self.decodeJWTClaim(accessToken, claim: "azp")
+      ?? Self.decodeJWTClaim(accessToken, claim: "aud")
+      ?? "(unknown)"
+    NSLog("[DocuSign] Calling DSMManager.login with:")
+    NSLog("[DocuSign]   accountId=\(accountId)")
+    NSLog("[DocuSign]   userId=\(userId)")
+    NSLog("[DocuSign]   userName=\(userName)")
+    NSLog("[DocuSign]   email=\(email)")
+    NSLog("[DocuSign]   host=\(effectiveHost.absoluteString)")
+    NSLog("[DocuSign]   integratorKey (init)=\(integratorKey)")
+    NSLog("[DocuSign]   token azp/aud=\(tokenAzp)")
+    if tokenAzp != "(unknown)" && tokenAzp != integratorKey {
+      NSLog("[DocuSign]   ⚠️ MISMATCH: integratorKey != token's azp/aud claim. This is the usual cause of 'Invalid login information'.")
+    }
+
+    let diagnostic = "integratorKey=\(integratorKey) tokenAzp=\(tokenAzp) accountId=\(accountId) userId=\(userId) host=\(effectiveHost.absoluteString)"
+
+    module?.sendEvent("onLoginAttempt", [
+      "integratorKey": integratorKey,
+      "accountId": accountId,
+      "userId": userId,
+      "userName": userName,
+      "email": email,
+      "host": effectiveHost.absoluteString
+    ])
 
     DSMManager.login(
       withAccessToken: accessToken,
@@ -66,22 +205,145 @@ internal final class DocuSignManager {
       userId: userId,
       userName: userName,
       email: email,
-      hostURL: hostURL
-    ) { error in
+      host: effectiveHost,
+      integratorKey: integratorKey,
+      refreshToken: nil,
+      expiresIn: expiryDate
+    ) { [weak self] accountInfo, error in
       if let error = error {
-        completion(.failure(error))
-      } else {
-        completion(.success(()))
+        let sdkMsg = (error as NSError).localizedDescription
+        let combined = "\(sdkMsg) | \(diagnostic)"
+        let enriched = NSError(
+          domain: "DocuSign",
+          code: (error as NSError).code,
+          userInfo: [NSLocalizedDescriptionKey: combined]
+        )
+        completion(.failure(enriched))
+        return
       }
+      self?.hasLoggedIn = true
+      let resolved = DocuSignAccountInfo(
+        accountId: accountInfo?.accountId ?? accountId,
+        userId: accountInfo?.userId ?? userId,
+        userName: accountInfo?.userName ?? userName,
+        email: accountInfo?.email ?? email
+      )
+      completion(.success(resolved))
     }
   }
 
+  private static func decodeJWTClaim(_ token: String, claim: String) -> String? {
+    let parts = token.split(separator: ".")
+    guard parts.count >= 2 else { return nil }
+    var payload = String(parts[1])
+    let padLen = (4 - payload.count % 4) % 4
+    payload.append(String(repeating: "=", count: padLen))
+    payload = payload.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+    guard let data = Data(base64Encoded: payload) else { return nil }
+    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+    if let s = json[claim] as? String { return s }
+    if let arr = json[claim] as? [String], let first = arr.first { return first }
+    return nil
+  }
+
+  private struct ResolvedUserInfo {
+    let accountId: String
+    let userId: String
+    let userName: String
+    let email: String
+    let host: String
+  }
+
+  private func oauthBaseURL() -> URL? {
+    switch environment {
+    case .demo:
+      return URL(string: "https://account-d.docusign.com")
+    case .production:
+      return URL(string: "https://account.docusign.com")
+    }
+  }
+
+  private func fetchUserInfo(
+    accessToken: String,
+    preferredAccountId: String,
+    completion: @escaping (Result<ResolvedUserInfo, Error>) -> Void
+  ) {
+    guard let base = oauthBaseURL() else {
+      completion(.failure(LoginFailedException("Could not derive OAuth base URL")))
+      return
+    }
+    let url = base.appendingPathComponent("oauth/userinfo")
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+    URLSession.shared.dataTask(with: request) { data, response, error in
+      if let error = error {
+        completion(.failure(LoginFailedException("userinfo request failed: \(error.localizedDescription)")))
+        return
+      }
+      guard let http = response as? HTTPURLResponse else {
+        completion(.failure(LoginFailedException("userinfo: no HTTP response")))
+        return
+      }
+      guard (200..<300).contains(http.statusCode), let data = data else {
+        let snippet = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        completion(.failure(LoginFailedException("userinfo HTTP \(http.statusCode): \(snippet.prefix(200))")))
+        return
+      }
+      do {
+        let decoded = try JSONDecoder().decode(UserInfoPayload.self, from: data)
+        guard let account = Self.pickAccount(from: decoded.accounts, preferredId: preferredAccountId) else {
+          completion(.failure(LoginFailedException("userinfo: no accounts in response")))
+          return
+        }
+        let host = account.base_uri.hasSuffix("/restapi") ? account.base_uri : account.base_uri + "/restapi"
+        let resolved = ResolvedUserInfo(
+          accountId: account.account_id,
+          userId: decoded.sub,
+          userName: decoded.name,
+          email: decoded.email,
+          host: host
+        )
+        completion(.success(resolved))
+      } catch {
+        completion(.failure(LoginFailedException("userinfo decode error: \(error.localizedDescription)")))
+      }
+    }.resume()
+  }
+
+  private static func pickAccount(from accounts: [UserInfoAccount], preferredId: String) -> UserInfoAccount? {
+    if !preferredId.isEmpty, let match = accounts.first(where: { $0.account_id == preferredId }) {
+      return match
+    }
+    if let def = accounts.first(where: { $0.is_default == true }) {
+      return def
+    }
+    return accounts.first
+  }
+
+  private struct UserInfoPayload: Decodable {
+    let sub: String
+    let name: String
+    let email: String
+    let accounts: [UserInfoAccount]
+  }
+
+  private struct UserInfoAccount: Decodable {
+    let account_id: String
+    let account_name: String?
+    let is_default: Bool?
+    let base_uri: String
+  }
+
   func logout() {
-    DSMManager.logout()
+    _ = DSMManager.logout()
+    hasLoggedIn = false
   }
 
   func isLoggedIn() -> Bool {
-    return DSMManager.isLoggedIn()
+    return hasLoggedIn
   }
 
   func presentCaptiveSigning(
@@ -99,41 +361,112 @@ internal final class DocuSignManager {
       throw NotLoggedInException()
     }
 
+    var alreadyInFlight = false
+    stateQueue.sync {
+      if pendingCompletion != nil {
+        alreadyInFlight = true
+      } else {
+        currentEnvelopeId = envelopeId
+        pendingCompletion = completion
+      }
+    }
+    if alreadyInFlight {
+      throw SigningFailedException("A signing session is already in progress")
+    }
+
     guard let presentingViewController = Self.topmostViewController() else {
+      resolvePending(.failure(PresentationException("Could not find a view controller to present from")))
       throw PresentationException("Could not find a view controller to present from")
     }
 
-    currentEnvelopeId = envelopeId
-
     DispatchQueue.main.async {
-      DSMEnvelopesManager.shared().presentCaptiveSigning(
+      let envelopesManager = DSMEnvelopesManager()
+      envelopesManager.presentCaptiveSigning(
         withPresenting: presentingViewController,
         envelopeId: envelopeId,
         recipientUserName: recipientUserName,
         recipientEmail: recipientEmail,
         recipientClientUserId: recipientClientUserId,
-        animated: true
-      ) { [weak self] _, error in
-        guard let self = self else { return }
-
-        if let error = error {
-          self.currentEnvelopeId = nil
-          completion(.failure(error))
-          return
+        animated: true,
+        completion: { [weak self] (_: UIViewController?, error: Error?) in
+          guard let self = self else { return }
+          if let error = error {
+            self.resolvePending(.failure(error))
+          }
+          // Success/cancel path is driven by DSMSigningCompletedNotification / DSMSigningCancelledNotification
         }
-      }
+      )
     }
-
-    pendingCompletion = completion
   }
 
-  private var pendingCompletion: ((Result<SigningOutcome, Error>) -> Void)?
+  func presentCaptiveSigningWithUrl(
+    signingUrl: String,
+    envelopeId: String,
+    recipientId: String?,
+    completion: @escaping (Result<SigningOutcome, Error>) -> Void
+  ) throws {
+    guard isInitialized else {
+      throw NotInitializedException()
+    }
+
+    var alreadyInFlight = false
+    stateQueue.sync {
+      if pendingCompletion != nil {
+        alreadyInFlight = true
+      } else {
+        currentEnvelopeId = envelopeId
+        pendingCompletion = completion
+      }
+    }
+    if alreadyInFlight {
+      throw SigningFailedException("A signing session is already in progress")
+    }
+
+    guard let presentingViewController = Self.topmostViewController() else {
+      resolvePending(.failure(PresentationException("Could not find a view controller to present from")))
+      throw PresentationException("Could not find a view controller to present from")
+    }
+
+    DispatchQueue.main.async {
+      let envelopesManager = DSMEnvelopesManager()
+      envelopesManager.presentCaptiveSigning(
+        withPresenting: presentingViewController,
+        signingUrl: signingUrl,
+        envelopeId: envelopeId,
+        recipientId: recipientId,
+        animated: true,
+        completion: { [weak self] (_: UIViewController?, error: Error?) in
+          guard let self = self else { return }
+          if let error = error {
+            self.resolvePending(.failure(error))
+          }
+        }
+      )
+    }
+  }
 
   internal struct SigningOutcome {
     let status: String
     let envelopeId: String
     let errorCode: String?
     let errorMessage: String?
+  }
+
+  private func resolvePending(_ result: Result<SigningOutcome, Error>) {
+    var completion: ((Result<SigningOutcome, Error>) -> Void)?
+    stateQueue.sync {
+      completion = pendingCompletion
+      pendingCompletion = nil
+      currentEnvelopeId = nil
+    }
+    completion?(result)
+  }
+
+  private func envelopeId(from notification: Notification) -> String {
+    if let id = notification.userInfo?[DSMEnvelopeIdKey] as? String, !id.isEmpty {
+      return id
+    }
+    return currentEnvelopeId ?? ""
   }
 
   private func registerNotificationObservers() {
@@ -153,7 +486,7 @@ internal final class DocuSignManager {
   }
 
   @objc private func handleSigningCompleted(_ notification: Notification) {
-    let envelopeId = currentEnvelopeId ?? (notification.userInfo?["envelopeId"] as? String ?? "")
+    let envelopeId = envelopeId(from: notification)
     let outcome = SigningOutcome(
       status: "completed",
       envelopeId: envelopeId,
@@ -161,24 +494,43 @@ internal final class DocuSignManager {
       errorMessage: nil
     )
     module?.sendEvent("onSigningComplete", ["envelopeId": envelopeId])
-    pendingCompletion?(.success(outcome))
-    pendingCompletion = nil
-    currentEnvelopeId = nil
+    resolvePending(.success(outcome))
   }
 
   @objc private func handleSigningCancelled(_ notification: Notification) {
-    let envelopeId = currentEnvelopeId ?? (notification.userInfo?["envelopeId"] as? String ?? "")
-    let reason = notification.userInfo?["reason"] as? String
+    let envelopeId = envelopeId(from: notification)
+    let userInfo = notification.userInfo
+
+    if let sdkError = userInfo?[DSMErrorKey] as? Error {
+      let nsErr = sdkError as NSError
+      let errorMessage = nsErr.localizedDescription
+      let errorCode = String(nsErr.code)
+      let outcome = SigningOutcome(
+        status: "error",
+        envelopeId: envelopeId,
+        errorCode: errorCode,
+        errorMessage: errorMessage
+      )
+      module?.sendEvent("onSigningError", [
+        "envelopeId": envelopeId,
+        "errorCode": errorCode,
+        "errorMessage": errorMessage
+      ])
+      resolvePending(.success(outcome))
+      return
+    }
+
+    let reason = userInfo?[DSMSigningExitReasonKey] as? String
     let outcome = SigningOutcome(
       status: "cancelled",
       envelopeId: envelopeId,
       errorCode: nil,
       errorMessage: reason
     )
-    module?.sendEvent("onSigningCancelled", ["envelopeId": envelopeId, "reason": reason as Any])
-    pendingCompletion?(.success(outcome))
-    pendingCompletion = nil
-    currentEnvelopeId = nil
+    var event: [String: Any] = ["envelopeId": envelopeId]
+    if let reason = reason { event["reason"] = reason }
+    module?.sendEvent("onSigningCancelled", event)
+    resolvePending(.success(outcome))
   }
 
   private static func topmostViewController(

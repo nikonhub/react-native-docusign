@@ -2,21 +2,15 @@ package expo.modules.docusign
 
 import android.app.Activity
 import android.content.Context
-import android.content.Intent
+import com.docusign.androidsdk.DSEnvironment
 import com.docusign.androidsdk.DocuSign
-import com.docusign.androidsdk.core.models.DSEnvelopeDefaultValues
-import com.docusign.androidsdk.core.models.DSEnvironment
-import com.docusign.androidsdk.core.models.DSMode
-import com.docusign.androidsdk.core.models.DSUser
-import com.docusign.androidsdk.core.models.User
-import com.docusign.androidsdk.delegates.DSAuthenticationDelegate
-import com.docusign.androidsdk.delegates.DSEnvelopeDelegate
+import com.docusign.androidsdk.dsmodels.DSUser
+import com.docusign.androidsdk.exceptions.DSAuthenticationException
+import com.docusign.androidsdk.exceptions.DSSigningException
 import com.docusign.androidsdk.listeners.DSAuthenticationListener
-import com.docusign.androidsdk.listeners.DSOfflineSigningListener
-import com.docusign.androidsdk.util.DSLogger
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import com.docusign.androidsdk.listeners.DSCaptiveSigningListener
+import com.docusign.androidsdk.listeners.DSLogoutListener
+import com.docusign.androidsdk.util.DSMode
 
 internal enum class DocuSignEnvironment(val value: String) {
   DEMO("demo"),
@@ -35,13 +29,19 @@ internal data class SigningOutcome(
   val errorMessage: String? = null
 )
 
+internal data class DocuSignAccountInfo(
+  val accountId: String,
+  val userId: String,
+  val userName: String,
+  val email: String
+)
+
 internal object DocuSignManager {
   private var isInitialized = false
+  private var hasLoggedIn = false
   private var module: DocuSignModule? = null
-  private var currentEnvelopeId: String? = null
+  private var appContext: Context? = null
   private var pendingCompletion: ((Result<SigningOutcome>) -> Unit)? = null
-
-  val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
   fun setModule(module: DocuSignModule) {
     this.module = module
@@ -57,19 +57,14 @@ internal object DocuSignManager {
     }
 
     val dsEnvironment = when (environment) {
-      DocuSignEnvironment.DEMO -> DSEnvironment.DEMO
-      DocuSignEnvironment.PRODUCTION -> DSEnvironment.PRODUCTION
+      DocuSignEnvironment.DEMO -> DSEnvironment.DEMO_ENVIRONMENT
+      DocuSignEnvironment.PRODUCTION -> DSEnvironment.PRODUCTION_ENVIRONMENT
     }
 
-    DocuSign.init(
-      context,
-      integratorKey,
-      "",
-      "",
-      DSMode.DEBUG
-    )
-    DocuSign.getInstance().setEnvironment(dsEnvironment)
+    DocuSign.init(context.applicationContext, integratorKey, "", "", DSMode.DEBUG)
+      .setEnvironment(dsEnvironment)
 
+    appContext = context.applicationContext
     isInitialized = true
   }
 
@@ -80,31 +75,34 @@ internal object DocuSignManager {
     userName: String,
     email: String,
     host: String,
-    completion: (Result<Unit>) -> Unit
+    expiresIn: Int,
+    completion: (Result<DocuSignAccountInfo>) -> Unit
   ) {
-    if (!isInitialized) {
+    val ctx = appContext
+    if (!isInitialized || ctx == null) {
       completion(Result.failure(NotInitializedException()))
       return
     }
 
     try {
-      val user = User(
-        userId = userId,
-        userName = userName,
-        email = email,
-        accountId = accountId,
-        accessToken = accessToken,
-        host = host
-      )
-
-      DocuSign.getInstance().getAuthenticationDelegate().loginWithAccessToken(
-        user,
+      DocuSign.getInstance().getAuthenticationDelegate().login(
+        accessToken,
+        null,
+        expiresIn,
+        ctx,
         object : DSAuthenticationListener {
-          override fun onSuccess(dsUser: DSUser) {
-            completion(Result.success(Unit))
+          override fun onSuccess(user: DSUser) {
+            hasLoggedIn = true
+            val info = DocuSignAccountInfo(
+              accountId = user.accountId.ifEmpty { accountId },
+              userId = user.userId.ifEmpty { userId },
+              userName = (user.name ?: "").ifEmpty { userName },
+              email = user.email.ifEmpty { email }
+            )
+            completion(Result.success(info))
           }
 
-          override fun onError(exception: Exception) {
+          override fun onError(exception: DSAuthenticationException) {
             completion(Result.failure(LoginFailedException(exception.message ?: "Unknown error")))
           }
         }
@@ -115,14 +113,23 @@ internal object DocuSignManager {
   }
 
   fun logout() {
-    if (!isInitialized) return
-    DocuSign.getInstance().getAuthenticationDelegate().logout()
+    val ctx = appContext
+    if (!isInitialized || ctx == null) return
+    hasLoggedIn = false
+    try {
+      DocuSign.getInstance().getAuthenticationDelegate().logout(
+        ctx,
+        true,
+        object : DSLogoutListener {
+          override fun onSuccess() {}
+          override fun onError(exception: DSAuthenticationException) {}
+        }
+      )
+    } catch (_: Exception) {
+    }
   }
 
-  fun isLoggedIn(): Boolean {
-    if (!isInitialized) return false
-    return DocuSign.getInstance().getAuthenticationDelegate().isUserLoggedIn()
-  }
+  fun isLoggedIn(): Boolean = hasLoggedIn
 
   fun presentCaptiveSigning(
     activity: Activity,
@@ -142,34 +149,61 @@ internal object DocuSignManager {
       return
     }
 
-    currentEnvelopeId = envelopeId
     pendingCompletion = completion
 
     try {
-      val envelopeDelegate = DocuSign.getInstance().getEnvelopeDelegate()
-      envelopeDelegate.captiveSignEnvelope(
+      DocuSign.getInstance().getCustomSettingsDelegate()
+        .disableNativeComponentsInOnlineSigning(activity, true)
+
+      DocuSign.getInstance().getSigningDelegate().launchCaptiveSigning(
         activity,
         envelopeId,
-        recipientUserName,
-        recipientEmail,
-        recipientClientUserId
+        recipientClientUserId,
+        object : DSCaptiveSigningListener {
+          override fun onStart(envelopeId: String) {}
+
+          override fun onSuccess(envelopeId: String) {
+            handleSigningCompleted(envelopeId)
+          }
+
+          override fun onCancel(envelopeId: String, recipientId: String) {
+            handleSigningCancelled(envelopeId, null)
+          }
+
+          override fun onError(envelopeId: String?, exception: DSSigningException) {
+            handleSigningError(
+              envelopeId,
+              "signing_failed",
+              exception.message ?: "Unknown error"
+            )
+          }
+
+          override fun onRecipientSigningSuccess(envelopeId: String, recipientId: String) {}
+
+          override fun onRecipientSigningError(
+            envelopeId: String,
+            recipientId: String,
+            exception: DSSigningException
+          ) {
+            handleSigningError(
+              envelopeId,
+              "recipient_signing_failed",
+              exception.message ?: "Unknown error"
+            )
+          }
+        }
       )
     } catch (e: Exception) {
       pendingCompletion = null
-      currentEnvelopeId = null
       completion(Result.failure(SigningFailedException(e.message ?: "Unknown error")))
     }
   }
 
   fun handleSigningCompleted(envelopeId: String) {
-    val outcome = SigningOutcome(
-      status = "completed",
-      envelopeId = envelopeId
-    )
+    val outcome = SigningOutcome(status = "completed", envelopeId = envelopeId)
     module?.emitSigningComplete(envelopeId)
     pendingCompletion?.invoke(Result.success(outcome))
     pendingCompletion = null
-    currentEnvelopeId = null
   }
 
   fun handleSigningCancelled(envelopeId: String, reason: String?) {
@@ -181,13 +215,11 @@ internal object DocuSignManager {
     module?.emitSigningCancelled(envelopeId, reason)
     pendingCompletion?.invoke(Result.success(outcome))
     pendingCompletion = null
-    currentEnvelopeId = null
   }
 
   fun handleSigningError(envelopeId: String?, errorCode: String, errorMessage: String) {
     module?.emitSigningError(envelopeId, errorCode, errorMessage)
     pendingCompletion?.invoke(Result.failure(SigningFailedException(errorMessage)))
     pendingCompletion = null
-    currentEnvelopeId = null
   }
 }

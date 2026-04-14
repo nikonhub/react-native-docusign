@@ -52,7 +52,10 @@ android {
 repositories {
   mavenCentral()
   maven {
-    url "https://maven.docusign.com/"
+    url "https://docucdn-a.akamaihd.net/prod/docusignandroidsdk"
+  }
+  flatDir {
+    dirs "$projectDir/libs"
   }
 }
 
@@ -61,6 +64,14 @@ dependencies {
   implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:${getKotlinVersion()}"
   implementation 'androidx.appcompat:appcompat:1.6.1'
 
-  implementation 'com.docusign:androidsdk:2.1.4'
+  // DocuSign's sdk-pdf AAR ships its own @GlideModule AppGlideModule, which
+  // generates com.bumptech.glide.GeneratedAppGlideModuleImpl.class. This
+  // collides with expo-image (and any other Glide-based library) at dex time.
+  // We exclude the upstream sdk-pdf and link a locally-stripped copy from
+  // libs/ that has the generated Glide classes removed.
+  implementation('com.docusign:androidsdk:2.1.4') {
+    exclude group: 'com.docusign', module: 'sdk-pdf'
+  }
   implementation 'com.docusign:sdk-common:2.1.4'
+  implementation(name: 'sdk-pdf-2.1.4-stripped', ext: 'aar')
 }

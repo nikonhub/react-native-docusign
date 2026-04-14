@@ -40,7 +40,7 @@ const withDocuSignAndroidPermissions: ConfigPlugin = (config) => {
 }
 
 const withDocuSignAndroidMavenRepo: ConfigPlugin<DocuSignPluginProps> = (config, props) => {
-  const repo = props.androidMavenRepo ?? 'https://maven.docusign.com/'
+  const repo = props.androidMavenRepo ?? 'https://docucdn-a.akamaihd.net/prod/docusignandroidsdk'
 
   return withProjectBuildGradle(config, (cfg) => {
     if (cfg.modResults.language !== 'groovy') {
@@ -64,12 +64,48 @@ const withDocuSignAndroidMavenRepo: ConfigPlugin<DocuSignPluginProps> = (config,
   })
 }
 
+const FLAT_DIR_MARKER = 'react-native-docusign-stripped-aar-flatdir'
+
+const withDocuSignAndroidStrippedAarFlatDir: ConfigPlugin = (config) =>
+  withProjectBuildGradle(config, (cfg) => {
+    if (cfg.modResults.language !== 'groovy') {
+      return cfg
+    }
+
+    if (cfg.modResults.contents.includes(FLAT_DIR_MARKER)) {
+      return cfg
+    }
+
+    const flatDirBlock = `  // ${FLAT_DIR_MARKER}: exposes the stripped sdk-pdf AAR bundled with react-native-docusign.
+  // The AAR has com.bumptech.glide.GeneratedAppGlideModuleImpl removed to prevent
+  // duplicate-class collisions with expo-image and other Glide-based libraries.
+  afterEvaluate {
+    def docusignProject = rootProject.findProject(':react-native-docusign')
+    if (docusignProject != null) {
+      repositories {
+        flatDir { dirs "\${docusignProject.projectDir}/libs" }
+      }
+    }
+  }`
+
+    const allprojectsRegex = /(allprojects\s*\{(?:[^{}]|\{[^{}]*\})*)(\n\})/
+    if (allprojectsRegex.test(cfg.modResults.contents)) {
+      cfg.modResults.contents = cfg.modResults.contents.replace(
+        allprojectsRegex,
+        `$1\n${flatDirBlock}$2`
+      )
+    }
+
+    return cfg
+  })
+
 const withDocuSign: ConfigPlugin<DocuSignPluginProps | void> = (config, props) => {
   const resolvedProps: DocuSignPluginProps = props ?? {}
   let updated = config
   updated = withDocuSignIos(updated, resolvedProps)
   updated = withDocuSignAndroidPermissions(updated)
   updated = withDocuSignAndroidMavenRepo(updated, resolvedProps)
+  updated = withDocuSignAndroidStrippedAarFlatDir(updated)
   return updated
 }
 

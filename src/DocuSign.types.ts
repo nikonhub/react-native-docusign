@@ -3,15 +3,26 @@ export type DocuSignEnvironment = 'demo' | 'production'
 export type DocuSignConfig = {
   integratorKey: string
   environment: DocuSignEnvironment
+  disablePoweredByBranding?: boolean
+  disableAppearance?: boolean
+  disableLocationPermission?: boolean
 }
 
 export type DocuSignAuthParams = {
   accessToken: string
+  accountId?: string
+  userId?: string
+  userName?: string
+  email?: string
+  host?: string
+  expiresIn?: number
+}
+
+export type DocuSignAccountInfo = {
   accountId: string
   userId: string
   userName: string
   email: string
-  host: string
 }
 
 export type CaptiveSigningParams = {
@@ -19,6 +30,12 @@ export type CaptiveSigningParams = {
   recipientUserName: string
   recipientEmail: string
   recipientClientUserId: string
+}
+
+export type CaptiveSigningUrlParams = {
+  signingUrl: string
+  envelopeId: string
+  recipientId?: string
 }
 
 export type SigningStatus = 'completed' | 'cancelled' | 'error'
@@ -45,8 +62,18 @@ export type SigningErrorEvent = {
   errorMessage: string
 }
 
+export type LoginAttemptEvent = {
+  integratorKey: string
+  accountId: string
+  userId: string
+  userName: string
+  email: string
+  host: string
+}
+
 export type DocuSignModuleEvents = {
   onSigningComplete: (event: SigningCompleteEvent) => void
   onSigningCancelled: (event: SigningCancelledEvent) => void
   onSigningError: (event: SigningErrorEvent) => void
+  onLoginAttempt: (event: LoginAttemptEvent) => void
 }

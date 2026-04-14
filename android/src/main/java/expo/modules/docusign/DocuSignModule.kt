@@ -35,6 +35,9 @@ internal class DocuSignAuthRecord : Record {
 
   @Field
   var host: String = ""
+
+  @Field
+  var expiresIn: Int = 3600
 }
 
 internal class CaptiveSigningRecord : Record {
@@ -49,6 +52,17 @@ internal class CaptiveSigningRecord : Record {
 
   @Field
   var recipientClientUserId: String = ""
+}
+
+internal class CaptiveSigningUrlRecord : Record {
+  @Field
+  var signingUrl: String = ""
+
+  @Field
+  var envelopeId: String = ""
+
+  @Field
+  var recipientId: String = ""
 }
 
 class DocuSignModule : Module() {
@@ -80,10 +94,20 @@ class DocuSignModule : Module() {
         userId = params.userId,
         userName = params.userName,
         email = params.email,
-        host = params.host
+        host = params.host,
+        expiresIn = params.expiresIn
       ) { result ->
         result.fold(
-          onSuccess = { promise.resolve(null) },
+          onSuccess = { info ->
+            promise.resolve(
+              mapOf(
+                "accountId" to info.accountId,
+                "userId" to info.userId,
+                "userName" to info.userName,
+                "email" to info.email
+              )
+            )
+          },
           onFailure = { error ->
             emitSigningError(null, "login_failed", error.message ?: "Unknown error")
             promise.reject("login_failed", error.message ?: "Unknown error", error as? Exception)
@@ -120,6 +144,14 @@ class DocuSignModule : Module() {
           }
         )
       }
+    }
+
+    AsyncFunction("presentCaptiveSigningWithUrl") { _: CaptiveSigningUrlRecord, promise: Promise ->
+      promise.reject(
+        "not_implemented",
+        "presentCaptiveSigningWithUrl is iOS-only. On Android, use presentCaptiveSigning after login.",
+        UnsupportedOperationException("presentCaptiveSigningWithUrl is iOS-only")
+      )
     }
 
     AsyncFunction("logout") { promise: Promise ->

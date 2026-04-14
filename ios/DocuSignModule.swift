@@ -3,6 +3,9 @@ import ExpoModulesCore
 internal struct DocuSignInitConfig: Record {
   @Field var integratorKey: String = ""
   @Field var environment: String = "demo"
+  @Field var disablePoweredByBranding: Bool = false
+  @Field var disableAppearance: Bool = false
+  @Field var disableLocationPermission: Bool = false
 }
 
 internal struct DocuSignAuthRecord: Record {
@@ -12,6 +15,7 @@ internal struct DocuSignAuthRecord: Record {
   @Field var userName: String = ""
   @Field var email: String = ""
   @Field var host: String = ""
+  @Field var expiresIn: Int = 3600
 }
 
 internal struct CaptiveSigningRecord: Record {
@@ -21,11 +25,17 @@ internal struct CaptiveSigningRecord: Record {
   @Field var recipientClientUserId: String = ""
 }
 
+internal struct CaptiveSigningUrlRecord: Record {
+  @Field var signingUrl: String = ""
+  @Field var envelopeId: String = ""
+  @Field var recipientId: String = ""
+}
+
 public class DocuSignModule: Module {
   public func definition() -> ModuleDefinition {
     Name("DocuSign")
 
-    Events("onSigningComplete", "onSigningCancelled", "onSigningError")
+    Events("onSigningComplete", "onSigningCancelled", "onSigningError", "onLoginAttempt")
 
     OnCreate {
       DocuSignManager.shared.setModule(self)
@@ -34,9 +44,15 @@ public class DocuSignModule: Module {
     AsyncFunction("initialize") { (config: DocuSignInitConfig, promise: Promise) in
       do {
         let environment = DocuSignEnvironment(rawValue: config.environment) ?? .demo
+        let options = DocuSignSetupOptions(
+          disablePoweredByBranding: config.disablePoweredByBranding,
+          disableAppearance: config.disableAppearance,
+          disableLocationPermission: config.disableLocationPermission
+        )
         try DocuSignManager.shared.initialize(
           integratorKey: config.integratorKey,
-          environment: environment
+          environment: environment,
+          options: options
         )
         promise.resolve(nil)
       } catch {
@@ -52,11 +68,17 @@ public class DocuSignModule: Module {
           userId: params.userId,
           userName: params.userName,
           email: params.email,
-          host: params.host
+          host: params.host,
+          expiresIn: params.expiresIn
         ) { result in
           switch result {
-          case .success:
-            promise.resolve(nil)
+          case .success(let info):
+            promise.resolve([
+              "accountId": info.accountId,
+              "userId": info.userId,
+              "userName": info.userName,
+              "email": info.email
+            ])
           case .failure(let error):
             self.sendEvent("onSigningError", [
               "errorCode": "login_failed",
@@ -77,6 +99,35 @@ public class DocuSignModule: Module {
           recipientUserName: params.recipientUserName,
           recipientEmail: params.recipientEmail,
           recipientClientUserId: params.recipientClientUserId
+        ) { result in
+          switch result {
+          case .success(let outcome):
+            promise.resolve([
+              "status": outcome.status,
+              "envelopeId": outcome.envelopeId,
+              "errorCode": outcome.errorCode as Any,
+              "errorMessage": outcome.errorMessage as Any
+            ])
+          case .failure(let error):
+            self.sendEvent("onSigningError", [
+              "envelopeId": params.envelopeId,
+              "errorCode": "signing_failed",
+              "errorMessage": error.localizedDescription
+            ])
+            promise.reject(SigningFailedException(error.localizedDescription))
+          }
+        }
+      } catch {
+        promise.reject(error)
+      }
+    }
+
+    AsyncFunction("presentCaptiveSigningWithUrl") { (params: CaptiveSigningUrlRecord, promise: Promise) in
+      do {
+        try DocuSignManager.shared.presentCaptiveSigningWithUrl(
+          signingUrl: params.signingUrl,
+          envelopeId: params.envelopeId,
+          recipientId: params.recipientId.isEmpty ? nil : params.recipientId
         ) { result in
           switch result {
           case .success(let outcome):
