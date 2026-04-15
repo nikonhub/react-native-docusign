@@ -33,7 +33,7 @@ internal final class DocuSignManager: NSObject {
   private var hasLoggedIn = false
   private var pendingCompletion: ((Result<SigningOutcome, Error>) -> Void)?
 
-  private let stateQueue = DispatchQueue(label: "com.goosehead.docusign.state")
+  private let stateQueue = DispatchQueue(label: "com.rndocusign.state")
 
   private override init() {
     super.init()

@@ -19,6 +19,7 @@ Built on the Expo Modules API. Works with Expo SDK 55+, bare React Native, and E
   - [initialize](#initializeconfig-docusignconfig-promisevoid)
   - [loginWithAccessToken](#loginwithaccesstokenparams-docusignauthparams-promisevoid)
   - [presentCaptiveSigning](#presentcaptivesigningparams-captivesigningparams-promisesigningresult)
+  - [presentCaptiveSigningWithUrl](#presentcaptivesigningwithurlparams-captivesigningurlparams-promisesigningresult)
   - [logout](#logout-promisevoid)
   - [isLoggedIn](#isloggedin-promiseboolean)
   - [Event listeners](#event-listeners)
@@ -61,10 +62,10 @@ The React Native layer never renders any of the signing UI. It only triggers the
 
 ## Platform requirements
 
-| Platform | Minimum OS | SDK version | Language |
-| --- | --- | --- | --- |
-| iOS | 15.1 | DocuSign iOS SDK 4.1.1 | Swift 5.9 |
-| Android | API 24 (Android 7.0) | DocuSign Android SDK 2.1.4 | Kotlin 1.8+ |
+| Platform | Minimum OS           | SDK version                | Language    |
+| -------- | -------------------- | -------------------------- | ----------- |
+| iOS      | 15.1                 | DocuSign iOS SDK 4.1.1     | Swift 5.9   |
+| Android  | API 24 (Android 7.0) | DocuSign Android SDK 2.1.4 | Kotlin 1.8+ |
 
 **Runtime requirements:**
 
@@ -97,10 +98,10 @@ Estimated package size: under 1 MB.
 
 ### Why not bundle the SDKs
 
-1. **License**: The DocuSign SDK has its own EULA that prohibits redistribution.
+1. **Distribution model**: DocuSign publishes the SDKs via CocoaPods and their own Maven repository. Consumers' builds resolve them directly and accept DocuSign's terms at install time — the standard native dependency pattern.
 2. **Size**: Keeps this npm package tiny.
 3. **Updates**: Consumers can bump DocuSign SDK versions via CocoaPods / Gradle independently of this wrapper.
-4. **Legal**: Avoids any intellectual property or trademark liability that comes with redistributing binaries.
+4. **Legal clarity**: Referencing SDK coordinates rather than shipping binaries keeps this wrapper cleanly MIT and avoids ambiguity about DocuSign's proprietary artifacts.
 
 ## Installation
 
@@ -132,7 +133,7 @@ export default {
       ],
     ],
   },
-}
+};
 ```
 
 ### 3. Rebuild the development client
@@ -164,21 +165,21 @@ type DocuSignPluginProps = {
    * Value written to NSCameraUsageDescription in Info.plist.
    * Defaults to a generic DocuSign-appropriate message.
    */
-  cameraPermission?: string
+  cameraPermission?: string;
 
   /**
    * Value written to NSPhotoLibraryUsageDescription in Info.plist.
    * Defaults to a generic DocuSign-appropriate message.
    */
-  photoPermission?: string
+  photoPermission?: string;
 
   /**
    * URL of the Android Maven repository that serves the DocuSign Android SDK.
    * Defaults to 'https://maven.docusign.com/'.
    * Override only if DocuSign moves their repo.
    */
-  androidMavenRepo?: string
-}
+  androidMavenRepo?: string;
+};
 ```
 
 What the plugin does during `expo prebuild`:
@@ -190,21 +191,21 @@ What the plugin does during `expo prebuild`:
 ## Quick start
 
 ```ts
-import * as DocuSign from 'react-native-docusign'
+import * as DocuSign from 'react-native-docusign';
 
 async function signCancellationDocument() {
   // Step 1: configure the SDK (call once per app lifetime)
   await DocuSign.initialize({
     integratorKey: 'YOUR_INTEGRATOR_KEY',
     environment: 'demo', // or 'production'
-  })
+  });
 
   // Step 2: fetch a signing session from your backend
   const session = await fetch('/api/envelopes/signing-session', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ policyId: 'policy_123', reason: 'switching_carrier' }),
-  }).then((r) => r.json())
+  }).then((r) => r.json());
 
   // Step 3: authenticate the SDK
   await DocuSign.loginWithAccessToken({
@@ -214,7 +215,7 @@ async function signCancellationDocument() {
     userName: session.userName,
     email: session.email,
     host: session.host, // 'https://demo.docusign.net/restapi'
-  })
+  });
 
   // Step 4: present the native signing UI
   const result = await DocuSign.presentCaptiveSigning({
@@ -222,18 +223,18 @@ async function signCancellationDocument() {
     recipientUserName: session.userName,
     recipientEmail: session.email,
     recipientClientUserId: session.recipientClientUserId,
-  })
+  });
 
   switch (result.status) {
     case 'completed':
-      console.log('Signed:', result.envelopeId)
-      break
+      console.log('Signed:', result.envelopeId);
+      break;
     case 'cancelled':
-      console.log('User cancelled signing')
-      break
+      console.log('User cancelled signing');
+      break;
     case 'error':
-      console.error('Signing error:', result.errorMessage)
-      break
+      console.error('Signing error:', result.errorMessage);
+      break;
   }
 }
 ```
@@ -246,9 +247,9 @@ Configures the underlying DocuSign SDK. Must be called once before any other fun
 
 ```ts
 type DocuSignConfig = {
-  integratorKey: string
-  environment: 'demo' | 'production'
-}
+  integratorKey: string;
+  environment: 'demo' | 'production';
+};
 ```
 
 **Parameters:**
@@ -264,13 +265,13 @@ Authenticates the SDK with a short-lived access token obtained from your backend
 
 ```ts
 type DocuSignAuthParams = {
-  accessToken: string
-  accountId: string
-  userId: string
-  userName: string
-  email: string
-  host: string
-}
+  accessToken: string;
+  accountId: string;
+  userId: string;
+  userName: string;
+  email: string;
+  host: string;
+};
 ```
 
 **Parameters:**
@@ -292,18 +293,18 @@ Presents the native DocuSign signing UI on top of your React Native app. The ret
 
 ```ts
 type CaptiveSigningParams = {
-  envelopeId: string
-  recipientUserName: string
-  recipientEmail: string
-  recipientClientUserId: string
-}
+  envelopeId: string;
+  recipientUserName: string;
+  recipientEmail: string;
+  recipientClientUserId: string;
+};
 
 type SigningResult = {
-  status: 'completed' | 'cancelled' | 'error'
-  envelopeId: string
-  errorCode?: string
-  errorMessage?: string
-}
+  status: 'completed' | 'cancelled' | 'error';
+  envelopeId: string;
+  errorCode?: string;
+  errorMessage?: string;
+};
 ```
 
 **Parameters:**
@@ -315,6 +316,33 @@ type SigningResult = {
 **Throws:** rejects with `signing_failed` if the SDK fails to present the signing UI (e.g. not initialized, not logged in, invalid envelope).
 
 **Returns:** resolves with a `SigningResult` once the user completes or cancels. `status === 'completed'` means the user finished the signing ceremony. `status === 'cancelled'` means the user explicitly cancelled or closed the signing UI.
+
+### `presentCaptiveSigningWithUrl(params: CaptiveSigningUrlParams): Promise<SigningResult>`
+
+**iOS only.** Presents the DocuSign signing UI using a pre-minted recipient view URL (obtained server-side from `POST /envelopes/{id}/views/recipient`). Bypasses SDK authentication — no `initialize` / `loginWithAccessToken` required first.
+
+```ts
+type CaptiveSigningUrlParams = {
+  signingUrl: string;
+  envelopeId: string;
+  recipientId?: string;
+};
+```
+
+**Parameters:**
+
+- `signingUrl`: short-lived recipient view URL from your backend (~5 min TTL, single use)
+- `envelopeId`: the DocuSign envelope ID
+- `recipientId` (optional): identifier used for event correlation
+
+**Throws:**
+
+- `not_implemented` on Android (see [Limitations](#limitations))
+- `signing_failed` if the URL is expired, malformed, or rejected by DocuSign
+
+**Returns:** same `SigningResult` shape as `presentCaptiveSigning`.
+
+**Why this flow:** keeps the DocuSign access token out of the mobile app entirely — your backend mints the signing URL and hands that single-use credential to the client. Recommended for production iOS flows.
 
 ### `logout(): Promise<void>`
 
@@ -330,35 +358,36 @@ In addition to the promise-based API, you can subscribe to events. Events fire f
 
 ```ts
 const completeSub = DocuSign.addSigningCompleteListener((event) => {
-  console.log('Signed envelope:', event.envelopeId)
-})
+  console.log('Signed envelope:', event.envelopeId);
+});
 
 const cancelSub = DocuSign.addSigningCancelledListener((event) => {
-  console.log('Cancelled:', event.envelopeId, event.reason)
-})
+  console.log('Cancelled:', event.envelopeId, event.reason);
+});
 
 const errorSub = DocuSign.addSigningErrorListener((event) => {
-  console.error('Error:', event.errorCode, event.errorMessage)
-})
+  console.error('Error:', event.errorCode, event.errorMessage);
+});
 
 // Later, clean up:
-completeSub.remove()
-cancelSub.remove()
-errorSub.remove()
+completeSub.remove();
+cancelSub.remove();
+errorSub.remove();
 ```
 
 In React hooks:
 
 ```ts
-import { useEffect } from 'react'
-import * as DocuSign from 'react-native-docusign'
+import { useEffect } from 'react';
+
+import * as DocuSign from 'react-native-docusign';
 
 useEffect(() => {
   const sub = DocuSign.addSigningCompleteListener((event) => {
-    refetchEnvelopeStatus(event.envelopeId)
-  })
-  return () => sub.remove()
-}, [])
+    refetchEnvelopeStatus(event.envelopeId);
+  });
+  return () => sub.remove();
+}, []);
 ```
 
 ## Hook API
@@ -368,7 +397,7 @@ For React consumers, the package exports a `useDocuSignSigning` hook that wraps 
 ### Usage
 
 ```tsx
-import { useDocuSignSigning } from 'react-native-docusign'
+import { useDocuSignSigning } from 'react-native-docusign';
 
 function CancellationScreen() {
   const { state, error, result, startSigning } = useDocuSignSigning({
@@ -376,14 +405,14 @@ function CancellationScreen() {
       integratorKey: 'YOUR_INTEGRATOR_KEY',
       environment: 'demo',
     },
-  })
+  });
 
   async function handleSign() {
     // Fetch the signing session from your backend
-    const session = await fetchSigningSessionFromYourBackend()
+    const session = await fetchSigningSessionFromYourBackend();
 
     // Hook handles loginWithAccessToken + presentCaptiveSigning + state transitions
-    const result = await startSigning(session)
+    const result = await startSigning(session);
 
     if (result.status === 'completed') {
       // Navigate to confirmation
@@ -400,17 +429,47 @@ function CancellationScreen() {
       {state === 'cancelled' && <Text>Signing cancelled</Text>}
       {state === 'error' && <Text>Error: {error?.message}</Text>}
     </View>
-  )
+  );
 }
 ```
 
 ### What the hook does for you
 
 - Calls `initialize()` automatically on mount (toggle with `autoInitialize: false` if you want to defer)
-- Calls `loginWithAccessToken()` and `presentCaptiveSigning()` in sequence inside `startSigning()`
+- Accepts both signing flows via a discriminated union on `startSigning(session)`:
+  - `{ type: 'session', ... }` — runs `loginWithAccessToken` + `presentCaptiveSigning` (iOS + Android)
+  - `{ type: 'url', ... }` — runs `presentCaptiveSigningWithUrl` (iOS only; throws on Android)
 - Tracks SDK state in a finite state machine
 - Subscribes to error events and surfaces them in the `error` field
 - Cleans up event listeners on unmount
+
+### URL-flow example (iOS)
+
+```tsx
+const result = await startSigning({
+  type: 'url',
+  signingUrl: sessionFromBackend.signingUrl,
+  envelopeId: sessionFromBackend.envelopeId,
+});
+```
+
+### Session-flow example (iOS + Android)
+
+```tsx
+const result = await startSigning({
+  type: 'session',
+  accessToken: sessionFromBackend.accessToken,
+  accountId: sessionFromBackend.accountId,
+  userId: sessionFromBackend.userId,
+  userName: sessionFromBackend.userName,
+  email: sessionFromBackend.email,
+  host: sessionFromBackend.host,
+  envelopeId: sessionFromBackend.envelopeId,
+  recipientUserName: sessionFromBackend.userName,
+  recipientEmail: sessionFromBackend.email,
+  recipientClientUserId: sessionFromBackend.recipientClientUserId,
+});
+```
 
 ### What stays YOUR responsibility
 
@@ -433,30 +492,32 @@ idle ──auto-init──> initializing ──> ready ──startSigning──>
 
 ```ts
 type DocuSignSigningState =
-  | 'idle'           // hook just mounted, initialization not started
-  | 'initializing'   // initialize() in progress
-  | 'ready'          // SDK ready, can call startSigning
-  | 'preparing'      // loginWithAccessToken in progress
-  | 'signing'        // native signing UI is presented
-  | 'completed'      // user finished signing successfully
-  | 'cancelled'      // user cancelled signing
-  | 'error'          // any failure
+  | 'idle' // hook just mounted, initialization not started
+  | 'initializing' // initialize() in progress
+  | 'ready' // SDK ready, can call startSigning
+  | 'preparing' // loginWithAccessToken in progress
+  | 'signing' // native signing UI is presented
+  | 'completed' // user finished signing successfully
+  | 'cancelled' // user cancelled signing
+  | 'error'; // any failure
 
-type SigningSession = DocuSignAuthParams & CaptiveSigningParams
+type SigningSessionWithAuth = DocuSignAuthParams & CaptiveSigningParams & { type: 'session' };
+type SigningSessionWithUrl = CaptiveSigningUrlParams & { type: 'url' };
+type SigningSession = SigningSessionWithAuth | SigningSessionWithUrl;
 
 type UseDocuSignSigningOptions = {
-  config: DocuSignConfig
-  autoInitialize?: boolean // default true
-}
+  config: DocuSignConfig;
+  autoInitialize?: boolean; // default true
+};
 
 type UseDocuSignSigningReturn = {
-  state: DocuSignSigningState
-  error: Error | null
-  result: SigningResult | null
-  initialize: () => Promise<void>           // manual init if autoInitialize=false
-  startSigning: (session: SigningSession) => Promise<SigningResult>
-  reset: () => void                          // back to idle/ready, clears error and result
-}
+  state: DocuSignSigningState;
+  error: Error | null;
+  result: SigningResult | null;
+  initialize: () => Promise<void>; // manual init if autoInitialize=false
+  startSigning: (session: SigningSession) => Promise<SigningResult>;
+  reset: () => void; // back to idle/ready, clears error and result
+};
 ```
 
 ### When NOT to use the hook
@@ -466,52 +527,52 @@ If you need fine-grained control over the SDK lifecycle (e.g., re-using login ac
 ## Types
 
 ```ts
-export type DocuSignEnvironment = 'demo' | 'production'
+export type DocuSignEnvironment = 'demo' | 'production';
 
 export type DocuSignConfig = {
-  integratorKey: string
-  environment: DocuSignEnvironment
-}
+  integratorKey: string;
+  environment: DocuSignEnvironment;
+};
 
 export type DocuSignAuthParams = {
-  accessToken: string
-  accountId: string
-  userId: string
-  userName: string
-  email: string
-  host: string
-}
+  accessToken: string;
+  accountId: string;
+  userId: string;
+  userName: string;
+  email: string;
+  host: string;
+};
 
 export type CaptiveSigningParams = {
-  envelopeId: string
-  recipientUserName: string
-  recipientEmail: string
-  recipientClientUserId: string
-}
+  envelopeId: string;
+  recipientUserName: string;
+  recipientEmail: string;
+  recipientClientUserId: string;
+};
 
-export type SigningStatus = 'completed' | 'cancelled' | 'error'
+export type SigningStatus = 'completed' | 'cancelled' | 'error';
 
 export type SigningResult = {
-  status: SigningStatus
-  envelopeId: string
-  errorCode?: string
-  errorMessage?: string
-}
+  status: SigningStatus;
+  envelopeId: string;
+  errorCode?: string;
+  errorMessage?: string;
+};
 
 export type SigningCompleteEvent = {
-  envelopeId: string
-}
+  envelopeId: string;
+};
 
 export type SigningCancelledEvent = {
-  envelopeId: string
-  reason?: string
-}
+  envelopeId: string;
+  reason?: string;
+};
 
 export type SigningErrorEvent = {
-  envelopeId?: string
-  errorCode: string
-  errorMessage: string
-}
+  envelopeId?: string;
+  errorCode: string;
+  errorMessage: string;
+};
 ```
 
 ## Authentication flow
@@ -577,14 +638,12 @@ const envelope = await docusign.envelopes.create({
           { tabLabel: 'new_carrier', value: 'Other Insurance Co.' },
           { tabLabel: 'mailing_address', value: '123 Main St, Anytown, USA' },
         ],
-        dateTabs: [
-          { tabLabel: 'desired_end_date', value: '2026-05-01' },
-        ],
+        dateTabs: [{ tabLabel: 'desired_end_date', value: '2026-05-01' }],
       },
     },
   ],
   status: 'sent',
-})
+});
 ```
 
 ## Multi-policy / multi-envelope chaining
@@ -593,23 +652,23 @@ Because the DocuSign SDK returns control to your app after each signing ceremony
 
 ```ts
 async function cancelMultiplePolicies(policies: Policy[]) {
-  const results: SigningResult[] = []
+  const results: SigningResult[] = [];
 
   for (const policy of policies) {
-    const session = await fetchSigningSession(policy.id)
-    await DocuSign.loginWithAccessToken(session)
+    const session = await fetchSigningSession(policy.id);
+    await DocuSign.loginWithAccessToken(session);
     const result = await DocuSign.presentCaptiveSigning({
       envelopeId: session.envelopeId,
       recipientUserName: session.userName,
       recipientEmail: session.email,
       recipientClientUserId: session.recipientClientUserId,
-    })
-    results.push(result)
+    });
+    results.push(result);
 
-    if (result.status !== 'completed') break
+    if (result.status !== 'completed') break;
   }
 
-  return results
+  return results;
 }
 ```
 
@@ -619,26 +678,26 @@ Between signings, you can also show a confirmation prompt ("cancel another polic
 
 The module rejects promises with coded exceptions you can inspect at the call site:
 
-| Error code | When | Mitigation |
-| --- | --- | --- |
-| `initialize_failed` | SDK failed to configure | Check integrator key and network connectivity |
-| `login_failed` | Access token was rejected | Fetch a fresh token from your backend |
-| `signing_failed` | SDK failed to present or complete signing | Check envelope ID, recipient info, SDK login state |
-| `not_initialized` | `initialize()` was not called first | Call `initialize()` before any other method |
-| `not_logged_in` | `loginWithAccessToken()` was not called first | Call `loginWithAccessToken()` before `presentCaptiveSigning()` |
+| Error code          | When                                          | Mitigation                                                     |
+| ------------------- | --------------------------------------------- | -------------------------------------------------------------- |
+| `initialize_failed` | SDK failed to configure                       | Check integrator key and network connectivity                  |
+| `login_failed`      | Access token was rejected                     | Fetch a fresh token from your backend                          |
+| `signing_failed`    | SDK failed to present or complete signing     | Check envelope ID, recipient info, SDK login state             |
+| `not_initialized`   | `initialize()` was not called first           | Call `initialize()` before any other method                    |
+| `not_logged_in`     | `loginWithAccessToken()` was not called first | Call `loginWithAccessToken()` before `presentCaptiveSigning()` |
 
 Example:
 
 ```ts
 try {
-  await DocuSign.presentCaptiveSigning(params)
+  await DocuSign.presentCaptiveSigning(params);
 } catch (error) {
   if (error.code === 'not_logged_in') {
-    const session = await refreshSession()
-    await DocuSign.loginWithAccessToken(session)
+    const session = await refreshSession();
+    await DocuSign.loginWithAccessToken(session);
     // retry
   } else {
-    reportError(error)
+    reportError(error);
   }
 }
 ```
@@ -658,18 +717,18 @@ try {
 
 The config plugin writes these keys automatically, or you can configure them manually:
 
-| Key | Purpose |
-| --- | --- |
-| `NSCameraUsageDescription` | Required when users capture signatures or attach photos via camera |
-| `NSPhotoLibraryUsageDescription` | Required when users attach photos from the photo library |
+| Key                              | Purpose                                                            |
+| -------------------------------- | ------------------------------------------------------------------ |
+| `NSCameraUsageDescription`       | Required when users capture signatures or attach photos via camera |
+| `NSPhotoLibraryUsageDescription` | Required when users attach photos from the photo library           |
 
 ### Android `AndroidManifest.xml`
 
-| Permission | Purpose |
-| --- | --- |
-| `android.permission.INTERNET` | DocuSign API calls |
+| Permission                                | Purpose                         |
+| ----------------------------------------- | ------------------------------- |
+| `android.permission.INTERNET`             | DocuSign API calls              |
 | `android.permission.ACCESS_NETWORK_STATE` | DocuSign SDK network monitoring |
-| `android.permission.CAMERA` | Signature and photo capture |
+| `android.permission.CAMERA`               | Signature and photo capture     |
 
 ## Troubleshooting
 
@@ -711,12 +770,13 @@ The module uses `appContext.activityProvider.currentActivity` to get the current
 
 ## Compatibility matrix
 
-| This package version | Expo SDK | React Native | iOS SDK | Android SDK |
-| --- | --- | --- | --- | --- |
-| 1.0.x | 55.x | 0.82.x | DocuSign iOS 4.1.1 | DocuSign Android 2.1.4 |
+| This package version | Expo SDK | React Native | iOS SDK            | Android SDK            |
+| -------------------- | -------- | ------------ | ------------------ | ---------------------- |
+| 1.0.x                | 55.x     | 0.82.x       | DocuSign iOS 4.1.1 | DocuSign Android 2.1.4 |
 
 ## Limitations
 
+- **URL-based captive signing is iOS-only.** `presentCaptiveSigningWithUrl` is supported on iOS via DocuSign's iOS SDK 4.1.1. The DocuSign Android SDK 2.1.4 does not expose a public API that accepts a pre-minted recipient view URL, so the method throws `not_implemented` on Android. On Android, use `loginWithAccessToken` + `presentCaptiveSigning` (the session path). Your backend can branch response shape per platform.
 - **Offline signing not exposed.** DocuSign's Android SDK supports offline signing via `com.docusign:sdk-offline-signing`. This package does not currently expose offline APIs. If you need offline signing, open an issue or send a pull request.
 - **Template management not exposed.** The SDK's template caching and download APIs are not wrapped. Template creation should happen server-side via the DocuSign REST API.
 - **Custom UI not supported.** The signing UI is provided by the DocuSign SDK and cannot be customized from this package. DocuSign owns the look and feel of the signing ceremony (this is intentional for legal compliance consistency).
