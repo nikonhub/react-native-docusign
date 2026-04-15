@@ -1,4 +1,4 @@
-import { NativeModule, requireNativeModule } from 'expo'
+import { NativeModule, requireNativeModule } from 'expo';
 
 import {
   CaptiveSigningParams,
@@ -8,15 +8,15 @@ import {
   DocuSignConfig,
   DocuSignModuleEvents,
   SigningResult,
-} from './DocuSign.types'
+} from './DocuSign.types';
 
 declare class DocuSignModule extends NativeModule<DocuSignModuleEvents> {
-  initialize(config: DocuSignConfig): Promise<void>
-  loginWithAccessToken(params: DocuSignAuthParams): Promise<DocuSignAccountInfo>
-  presentCaptiveSigning(params: CaptiveSigningParams): Promise<SigningResult>
-  presentCaptiveSigningWithUrl(params: CaptiveSigningUrlParams): Promise<SigningResult>
-  logout(): Promise<void>
-  isLoggedIn(): Promise<boolean>
+  initialize(config: DocuSignConfig): Promise<void>;
+  loginWithAccessToken(params: DocuSignAuthParams): Promise<DocuSignAccountInfo>;
+  presentCaptiveSigning(params: CaptiveSigningParams): Promise<SigningResult>;
+  presentCaptiveSigningWithUrl(params: CaptiveSigningUrlParams): Promise<SigningResult>;
+  logout(): Promise<void>;
+  isLoggedIn(): Promise<boolean>;
 }
 
-export default requireNativeModule<DocuSignModule>('DocuSign')
+export default requireNativeModule<DocuSignModule>('DocuSign');
