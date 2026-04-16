@@ -6,6 +6,15 @@ Built on the Expo Modules API. Works with Expo SDK 55+, bare React Native, and E
 
 > **Unofficial package.** This is a community wrapper. It is not affiliated with or endorsed by DocuSign, Inc. "DocuSign" is a trademark of DocuSign, Inc.
 
+## iOS ↔ Android parity
+
+| Flow                                                                    | iOS | Android |
+|-------------------------------------------------------------------------|:---:|:-------:|
+| Session flow — `initialize` → `loginWithAccessToken` → `presentCaptiveSigning` | ✅  |   ✅    |
+| URL flow — `presentCaptiveSigningWithUrl`                                | ✅  |   ❌    |
+
+The DocuSign Android SDK (2.1.4) does not expose a public URL-based signing entry point; calling `presentCaptiveSigningWithUrl` on Android rejects with `not_implemented`. **Default to the session flow for cross-platform apps.**
+
 ## Table of contents
 
 - [Features](#features)

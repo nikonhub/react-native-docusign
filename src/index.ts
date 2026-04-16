@@ -28,6 +28,14 @@ export function presentCaptiveSigning(params: CaptiveSigningParams): Promise<Sig
   return DocuSignModule.presentCaptiveSigning(params);
 }
 
+/**
+ * Present captive signing from a pre-minted DocuSign recipient-view URL.
+ *
+ * @platform iOS only. The Android DocuSign SDK (2.1.4) does not expose a
+ * public URL-based signing entry point; calling this on Android rejects with
+ * `not_implemented`. For cross-platform parity, prefer {@link presentCaptiveSigning}
+ * with the session flow (accessToken + envelopeId + recipient).
+ */
 export function presentCaptiveSigningWithUrl(params: CaptiveSigningUrlParams): Promise<SigningResult> {
   return DocuSignModule.presentCaptiveSigningWithUrl(params);
 }

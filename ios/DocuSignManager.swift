@@ -157,6 +157,24 @@ internal final class DocuSignManager: NSObject {
       return
     }
 
+    // DSMManager APIs must run on the main thread. Expo/RN dispatches
+    // native module calls on a serial background queue, so hop to main.
+    if !Thread.isMainThread {
+      DispatchQueue.main.async { [weak self] in
+        self?.performLogin(
+          accessToken: accessToken,
+          accountId: accountId,
+          userId: userId,
+          userName: userName,
+          email: email,
+          hostOverride: hostOverride,
+          expiresIn: expiresIn,
+          completion: completion
+        )
+      }
+      return
+    }
+
     let effectiveHost: URL
     if !hostOverride.isEmpty, let override = URL(string: hostOverride) {
       effectiveHost = override
@@ -211,14 +229,9 @@ internal final class DocuSignManager: NSObject {
       expiresIn: expiryDate
     ) { [weak self] accountInfo, error in
       if let error = error {
-        let sdkMsg = (error as NSError).localizedDescription
-        let combined = "\(sdkMsg) | \(diagnostic)"
-        let enriched = NSError(
-          domain: "DocuSign",
-          code: (error as NSError).code,
-          userInfo: [NSLocalizedDescriptionKey: combined]
-        )
-        completion(.failure(enriched))
+        // Classify failure via /oauth/userinfo pre-flight so we can surface
+        // an actionable error instead of opaque "unauthorized".
+        self?.classifyLoginFailure(accessToken: accessToken, sdkError: error, diagnostic: diagnostic, integratorKey: integratorKey, completion: completion)
         return
       }
       self?.hasLoggedIn = true
@@ -230,6 +243,72 @@ internal final class DocuSignManager: NSObject {
       )
       completion(.success(resolved))
     }
+  }
+
+  private func classifyLoginFailure(
+    accessToken: String,
+    sdkError: Error,
+    diagnostic: String,
+    integratorKey: String,
+    completion: @escaping (Result<DocuSignAccountInfo, Error>) -> Void
+  ) {
+    let sdkMsg = (sdkError as NSError).localizedDescription
+    let sdkCode = (sdkError as NSError).code
+
+    probeUserInfoStatus(accessToken: accessToken) { probe in
+      let enrichedMsg: String
+      switch probe {
+      case .ok:
+        enrichedMsg = "SDK rejected a valid token. Likely causes: Mobile SDK not enabled for integration key \(integratorKey), or iOS bundle ID not whitelisted in DocuSign admin. Contact DocuSign support. (SDK: \(sdkMsg)) | \(diagnostic)"
+      case .unauthorized:
+        enrichedMsg = "Access token rejected by DocuSign /oauth/userinfo — re-mint via JWT Bearer Grant with scope=signature impersonation. (SDK: \(sdkMsg)) | \(diagnostic)"
+      case .network(let netMsg):
+        enrichedMsg = "\(sdkMsg) (userinfo probe network error: \(netMsg)) | \(diagnostic)"
+      }
+      let enriched = NSError(
+        domain: "DocuSign",
+        code: sdkCode,
+        userInfo: [NSLocalizedDescriptionKey: enrichedMsg]
+      )
+      completion(.failure(enriched))
+    }
+  }
+
+  private enum UserInfoProbe {
+    case ok
+    case unauthorized
+    case network(String)
+  }
+
+  private func probeUserInfoStatus(accessToken: String, completion: @escaping (UserInfoProbe) -> Void) {
+    guard let base = oauthBaseURL() else {
+      completion(.network("no oauth base URL"))
+      return
+    }
+    let url = base.appendingPathComponent("oauth/userinfo")
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.timeoutInterval = 10
+
+    URLSession.shared.dataTask(with: request) { _, response, error in
+      if let error = error {
+        completion(.network(error.localizedDescription))
+        return
+      }
+      guard let http = response as? HTTPURLResponse else {
+        completion(.network("no HTTP response"))
+        return
+      }
+      if (200..<300).contains(http.statusCode) {
+        completion(.ok)
+      } else if http.statusCode == 401 || http.statusCode == 403 {
+        completion(.unauthorized)
+      } else {
+        completion(.network("userinfo HTTP \(http.statusCode)"))
+      }
+    }.resume()
   }
 
   private static func decodeJWTClaim(_ token: String, claim: String) -> String? {
@@ -338,7 +417,13 @@ internal final class DocuSignManager: NSObject {
   }
 
   func logout() {
-    _ = DSMManager.logout()
+    if Thread.isMainThread {
+      _ = DSMManager.logout()
+    } else {
+      DispatchQueue.main.sync {
+        _ = DSMManager.logout()
+      }
+    }
     hasLoggedIn = false
   }
 

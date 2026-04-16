@@ -11,6 +11,9 @@ import com.docusign.androidsdk.listeners.DSAuthenticationListener
 import com.docusign.androidsdk.listeners.DSCaptiveSigningListener
 import com.docusign.androidsdk.listeners.DSLogoutListener
 import com.docusign.androidsdk.util.DSMode
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.concurrent.thread
 
 internal enum class DocuSignEnvironment(val value: String) {
   DEMO("demo"),
@@ -42,6 +45,10 @@ internal object DocuSignManager {
   private var module: DocuSignModule? = null
   private var appContext: Context? = null
   private var pendingCompletion: ((Result<SigningOutcome>) -> Unit)? = null
+  private var integratorKey: String = ""
+  private var environment: DocuSignEnvironment = DocuSignEnvironment.DEMO
+
+  private enum class UserInfoProbe { OK, UNAUTHORIZED, NETWORK }
 
   fun setModule(module: DocuSignModule) {
     this.module = module
@@ -65,6 +72,8 @@ internal object DocuSignManager {
       .setEnvironment(dsEnvironment)
 
     appContext = context.applicationContext
+    this.integratorKey = integratorKey
+    this.environment = environment
     isInitialized = true
   }
 
@@ -103,12 +112,67 @@ internal object DocuSignManager {
           }
 
           override fun onError(exception: DSAuthenticationException) {
-            completion(Result.failure(LoginFailedException(exception.message ?: "Unknown error")))
+            val sdkMsg = exception.message ?: "Unknown error"
+            classifyLoginFailure(accessToken, sdkMsg) { enrichedMsg ->
+              completion(Result.failure(LoginFailedException(enrichedMsg)))
+            }
           }
         }
       )
     } catch (e: Exception) {
       completion(Result.failure(LoginFailedException(e.message ?: "Unknown error")))
+    }
+  }
+
+  private fun classifyLoginFailure(
+    accessToken: String,
+    sdkMsg: String,
+    completion: (String) -> Unit
+  ) {
+    probeUserInfoStatus(accessToken) { probe ->
+      val diagnostic = "integratorKey=$integratorKey environment=${environment.value}"
+      val enriched = when (probe) {
+        UserInfoProbe.OK ->
+          "SDK rejected a valid token. Likely causes: Mobile SDK not enabled for integration key $integratorKey, or Android package name not whitelisted in DocuSign admin. Contact DocuSign support. (SDK: $sdkMsg) | $diagnostic"
+        UserInfoProbe.UNAUTHORIZED ->
+          "Access token rejected by DocuSign /oauth/userinfo — re-mint via JWT Bearer Grant with scope=signature impersonation. (SDK: $sdkMsg) | $diagnostic"
+        UserInfoProbe.NETWORK ->
+          "$sdkMsg | $diagnostic"
+      }
+      completion(enriched)
+    }
+  }
+
+  private fun probeUserInfoStatus(accessToken: String, completion: (UserInfoProbe) -> Unit) {
+    val base = when (environment) {
+      DocuSignEnvironment.DEMO -> "https://account-d.docusign.com"
+      DocuSignEnvironment.PRODUCTION -> "https://account.docusign.com"
+    }
+    thread(start = true, isDaemon = true) {
+      var connection: HttpURLConnection? = null
+      val result = try {
+        connection = (URL("$base/oauth/userinfo").openConnection() as HttpURLConnection).apply {
+          requestMethod = "GET"
+          connectTimeout = 10_000
+          readTimeout = 10_000
+          setRequestProperty("Authorization", "Bearer $accessToken")
+          setRequestProperty("Accept", "application/json")
+        }
+        when (val code = connection.responseCode) {
+          in 200..299 -> UserInfoProbe.OK
+          401, 403 -> UserInfoProbe.UNAUTHORIZED
+          else -> {
+            android.util.Log.w("DocuSign", "userinfo probe HTTP $code")
+            UserInfoProbe.NETWORK
+          }
+        }
+      } catch (e: Exception) {
+        android.util.Log.w("DocuSign", "userinfo probe error: ${e.message}")
+        UserInfoProbe.NETWORK
+      } finally {
+        connection?.disconnect()
+      }
+      completion(result)
     }
   }
 

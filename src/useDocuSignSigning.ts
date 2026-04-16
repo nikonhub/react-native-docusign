@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 
 import {
   CaptiveSigningParams,
@@ -108,6 +109,11 @@ export function useDocuSignSigning(options: UseDocuSignSigningOptions): UseDocuS
         let signingResult: SigningResult;
 
         if (session.type === 'url') {
+          if (Platform.OS !== 'ios') {
+            throw new Error(
+              'presentCaptiveSigningWithUrl is iOS-only. Use the session flow (type: "session") for Android parity.'
+            );
+          }
           setState('signing');
           signingResult = await presentCaptiveSigningWithUrl({
             signingUrl: session.signingUrl,
