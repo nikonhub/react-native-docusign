@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { Platform } from 'react-native';
 
-import {
-  CaptiveSigningParams,
-  CaptiveSigningUrlParams,
-  DocuSignAuthParams,
-  DocuSignConfig,
-  SigningResult,
-} from './DocuSign.types';
 import {
   addSigningCancelledListener,
   addSigningCompleteListener,
@@ -16,7 +10,14 @@ import {
   loginWithAccessToken,
   presentCaptiveSigning,
   presentCaptiveSigningWithUrl,
-} from './index';
+} from './api';
+import {
+  CaptiveSigningParams,
+  CaptiveSigningUrlParams,
+  DocuSignAuthParams,
+  DocuSignConfig,
+  SigningResult,
+} from './DocuSign.types';
 
 export type DocuSignSigningState =
   | 'idle'
