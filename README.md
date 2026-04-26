@@ -15,6 +15,16 @@ Built on the Expo Modules API. Works with Expo SDK 55+, bare React Native, and E
 
 The DocuSign Android SDK (2.1.4) does not expose a public URL-based signing entry point; calling `presentCaptiveSigningWithUrl` on Android rejects with `not_implemented`. **Default to the session flow for cross-platform apps.**
 
+## One backend response, both platforms
+
+Both iOS and Android consume the **same 13-field session payload** from your backend — there is no platform-specific branching on the client. Mint it once on your BFF, hand it to the module, and the same code path runs on both OSes.
+
+The mobile module expects exactly these fields:
+
+`integratorKey`, `environment`, `accessToken`, `expiresIn`, `host`, `accountId`, `userId`, `userName`, `email`, `envelopeId`, `clientUserId`, `recipientName`, `recipientEmail`.
+
+Full schema and BFF reference implementation: [`docs/BACKEND_GUIDE.md` → Session Payload Contract](docs/BACKEND_GUIDE.md#session-payload-contract).
+
 ## Table of contents
 
 - [Features](#features)

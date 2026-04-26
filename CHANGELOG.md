@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1
+
+### Documentation
+
+- Surface the unified iOS/Android session payload contract in the README. New "One backend response, both platforms" callout names the 13 expected fields and links to the full schema in `docs/BACKEND_GUIDE.md`.
+
 ## 1.0.0
 
 ### New features
