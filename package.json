@@ -29,13 +29,13 @@
     "ios",
     "android"
   ],
-  "repository": "https://github.com/goosehead/react-native-docusign",
+  "repository": "https://github.com/IronTony/react-native-docusign",
   "bugs": {
-    "url": "https://github.com/goosehead/react-native-docusign/issues"
+    "url": "https://github.com/IronTony/react-native-docusign/issues"
   },
-  "author": "react-native-docusign contributors",
+  "author": "IronTony",
   "license": "MIT",
-  "homepage": "https://github.com/goosehead/react-native-docusign",
+  "homepage": "https://github.com/IronTony/react-native-docusign",
   "dependencies": {},
   "devDependencies": {},
   "peerDependencies": {
