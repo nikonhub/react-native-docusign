@@ -10,8 +10,8 @@ Built on the Expo Modules API. Works with Expo SDK 55+, bare React Native, and E
 
 | Flow                                                                    | iOS | Android |
 |-------------------------------------------------------------------------|:---:|:-------:|
-| Session flow — `initialize` → `loginWithAccessToken` → `presentCaptiveSigning` | ✅  |   ✅    |
-| URL flow — `presentCaptiveSigningWithUrl`                                | ✅  |   ❌    |
+| Session flow: `initialize` → `loginWithAccessToken` → `presentCaptiveSigning` | ✅  |   ✅    |
+| URL flow: `presentCaptiveSigningWithUrl`                                | ✅  |   ❌    |
 
 The DocuSign Android SDK (2.1.4) does not expose a public URL-based signing entry point; calling `presentCaptiveSigningWithUrl` on Android rejects with `not_implemented`. **Default to the session flow for cross-platform apps.**
 
@@ -107,7 +107,7 @@ Estimated package size: under 1 MB.
 
 ### Why not bundle the SDKs
 
-1. **Distribution model**: DocuSign publishes the SDKs via CocoaPods and their own Maven repository. Consumers' builds resolve them directly and accept DocuSign's terms at install time — the standard native dependency pattern.
+1. **Distribution model**: DocuSign publishes the SDKs via CocoaPods and their own Maven repository. Consumers' builds resolve them directly and accept DocuSign's terms at install time, the standard native dependency pattern.
 2. **Size**: Keeps this npm package tiny.
 3. **Updates**: Consumers can bump DocuSign SDK versions via CocoaPods / Gradle independently of this wrapper.
 4. **Legal clarity**: Referencing SDK coordinates rather than shipping binaries keeps this wrapper cleanly MIT and avoids ambiguity about DocuSign's proprietary artifacts.
@@ -328,7 +328,7 @@ type SigningResult = {
 
 ### `presentCaptiveSigningWithUrl(params: CaptiveSigningUrlParams): Promise<SigningResult>`
 
-**iOS only.** Presents the DocuSign signing UI using a pre-minted recipient view URL (obtained server-side from `POST /envelopes/{id}/views/recipient`). Bypasses SDK authentication — no `initialize` / `loginWithAccessToken` required first.
+**iOS only.** Presents the DocuSign signing UI using a pre-minted recipient view URL (obtained server-side from `POST /envelopes/{id}/views/recipient`). Bypasses SDK authentication; no `initialize` / `loginWithAccessToken` required first.
 
 ```ts
 type CaptiveSigningUrlParams = {
@@ -351,7 +351,7 @@ type CaptiveSigningUrlParams = {
 
 **Returns:** same `SigningResult` shape as `presentCaptiveSigning`.
 
-**Why this flow:** keeps the DocuSign access token out of the mobile app entirely — your backend mints the signing URL and hands that single-use credential to the client. Recommended for production iOS flows.
+**Why this flow:** keeps the DocuSign access token out of the mobile app entirely; your backend mints the signing URL and hands that single-use credential to the client. Recommended for production iOS flows.
 
 ### `logout(): Promise<void>`
 
@@ -446,8 +446,8 @@ function CancellationScreen() {
 
 - Calls `initialize()` automatically on mount (toggle with `autoInitialize: false` if you want to defer)
 - Accepts both signing flows via a discriminated union on `startSigning(session)`:
-  - `{ type: 'session', ... }` — runs `loginWithAccessToken` + `presentCaptiveSigning` (iOS + Android)
-  - `{ type: 'url', ... }` — runs `presentCaptiveSigningWithUrl` (iOS only; throws on Android)
+  - `{ type: 'session', ... }`: runs `loginWithAccessToken` + `presentCaptiveSigning` (iOS + Android)
+  - `{ type: 'url', ... }`: runs `presentCaptiveSigningWithUrl` (iOS only; throws on Android)
 - Tracks SDK state in a finite state machine
 - Subscribes to error events and surfaces them in the `error` field
 - Cleans up event listeners on unmount
