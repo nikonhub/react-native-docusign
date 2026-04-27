@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { Platform } from 'react-native';
-
 import {
-  addSigningCancelledListener,
-  addSigningCompleteListener,
   addSigningErrorListener,
   initialize,
   loginWithAccessToken,
@@ -19,23 +15,39 @@ import {
   SigningResult,
 } from './DocuSign.types';
 
-export type DocuSignSigningState =
-  | 'idle'
-  | 'initializing'
-  | 'ready'
-  | 'preparing'
-  | 'signing'
-  | 'completed'
-  | 'cancelled'
-  | 'error';
+export const SIGNING_STATE = {
+  IDLE: 'idle',
+  INITIALIZING: 'initializing',
+  READY: 'ready',
+  PREPARING: 'preparing',
+  SIGNING: 'signing',
+  COMPLETED: 'completed',
+  CANCELLED: 'cancelled',
+  ERROR: 'error',
+} as const;
 
-export type SigningSessionWithAuth = DocuSignAuthParams & CaptiveSigningParams & { type: 'session' };
+export type DocuSignSigningState =
+  (typeof SIGNING_STATE)[keyof typeof SIGNING_STATE];
+
+export type SigningSessionWithAuth = DocuSignAuthParams &
+  CaptiveSigningParams & { type: 'session' };
 
 export type SigningSessionWithUrl = CaptiveSigningUrlParams & { type: 'url' };
 
 export type SigningSession = SigningSessionWithAuth | SigningSessionWithUrl;
 
+function stateForResult(status: SigningResult['status']): DocuSignSigningState {
+  if (status === 'completed') return SIGNING_STATE.COMPLETED;
+  if (status === 'cancelled') return SIGNING_STATE.CANCELLED;
+  return SIGNING_STATE.ERROR;
+}
+
 export type UseDocuSignSigningOptions = {
+  /**
+   * DocuSign configuration. Pass a stable reference (module-level constant or
+   * `useMemo`-wrapped object). A new object identity on every render will
+   * re-trigger initialization unless React Compiler memoization is active.
+   */
   config: DocuSignConfig;
   autoInitialize?: boolean;
 };
@@ -49,26 +61,28 @@ export type UseDocuSignSigningReturn = {
   reset: () => void;
 };
 
-export function useDocuSignSigning(options: UseDocuSignSigningOptions): UseDocuSignSigningReturn {
+export function useDocuSignSigning(
+  options: UseDocuSignSigningOptions,
+): UseDocuSignSigningReturn {
   const { config, autoInitialize = true } = options;
 
-  const [state, setState] = useState<DocuSignSigningState>('idle');
+  const [state, setState] = useState<DocuSignSigningState>(SIGNING_STATE.IDLE);
   const [error, setError] = useState<Error | null>(null);
   const [result, setResult] = useState<SigningResult | null>(null);
   const initializedRef = useRef(false);
 
   const doInitialize = useCallback(async () => {
     if (initializedRef.current) return;
-    setState('initializing');
+    setState(SIGNING_STATE.INITIALIZING);
     setError(null);
     try {
       await initialize(config);
       initializedRef.current = true;
-      setState('ready');
+      setState(SIGNING_STATE.READY);
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
       setError(err);
-      setState('error');
+      setState(SIGNING_STATE.ERROR);
       throw err;
     }
   }, [config]);
@@ -80,18 +94,11 @@ export function useDocuSignSigning(options: UseDocuSignSigningOptions): UseDocuS
     });
   }, [autoInitialize, doInitialize]);
 
-  useEffect(() => {
-    const completeSub = addSigningCompleteListener(() => {
-      // promise-based path also resolves; this listener is here for any
-      // event that may fire from outside the promise flow
-    });
-    const cancelSub = addSigningCancelledListener(() => {});
+  useEffect(function attachErrorListener() {
     const errorSub = addSigningErrorListener((event) => {
       setError(new Error(`${event.errorCode}: ${event.errorMessage}`));
     });
     return () => {
-      completeSub.remove();
-      cancelSub.remove();
       errorSub.remove();
     };
   }, []);
@@ -103,19 +110,14 @@ export function useDocuSignSigning(options: UseDocuSignSigningOptions): UseDocuS
           await doInitialize();
         }
 
-        setState('preparing');
+        setState(SIGNING_STATE.PREPARING);
         setError(null);
         setResult(null);
 
         let signingResult: SigningResult;
 
         if (session.type === 'url') {
-          if (Platform.OS !== 'ios') {
-            throw new Error(
-              'presentCaptiveSigningWithUrl is iOS-only. Use the session flow (type: "session") for Android parity.'
-            );
-          }
-          setState('signing');
+          setState(SIGNING_STATE.SIGNING);
           signingResult = await presentCaptiveSigningWithUrl({
             signingUrl: session.signingUrl,
             envelopeId: session.envelopeId,
@@ -131,7 +133,7 @@ export function useDocuSignSigning(options: UseDocuSignSigningOptions): UseDocuS
             host: session.host,
           });
 
-          setState('signing');
+          setState(SIGNING_STATE.SIGNING);
           signingResult = await presentCaptiveSigning({
             envelopeId: session.envelopeId,
             recipientUserName: session.recipientUserName,
@@ -141,26 +143,20 @@ export function useDocuSignSigning(options: UseDocuSignSigningOptions): UseDocuS
         }
 
         setResult(signingResult);
-        setState(
-          signingResult.status === 'completed'
-            ? 'completed'
-            : signingResult.status === 'cancelled'
-              ? 'cancelled'
-              : 'error'
-        );
+        setState(stateForResult(signingResult.status));
         return signingResult;
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));
         setError(err);
-        setState('error');
+        setState(SIGNING_STATE.ERROR);
         throw err;
       }
     },
-    [doInitialize]
+    [doInitialize],
   );
 
   const reset = useCallback(() => {
-    setState(initializedRef.current ? 'ready' : 'idle');
+    setState(initializedRef.current ? SIGNING_STATE.READY : SIGNING_STATE.IDLE);
     setError(null);
     setResult(null);
   }, []);

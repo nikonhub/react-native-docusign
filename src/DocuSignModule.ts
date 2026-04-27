@@ -12,9 +12,13 @@ import {
 
 declare class DocuSignModule extends NativeModule<DocuSignModuleEvents> {
   initialize(config: DocuSignConfig): Promise<void>;
-  loginWithAccessToken(params: DocuSignAuthParams): Promise<DocuSignAccountInfo>;
+  loginWithAccessToken(
+    params: DocuSignAuthParams,
+  ): Promise<DocuSignAccountInfo>;
   presentCaptiveSigning(params: CaptiveSigningParams): Promise<SigningResult>;
-  presentCaptiveSigningWithUrl(params: CaptiveSigningUrlParams): Promise<SigningResult>;
+  presentCaptiveSigningWithUrl(
+    params: CaptiveSigningUrlParams,
+  ): Promise<SigningResult>;
   logout(): Promise<void>;
   isLoggedIn(): Promise<boolean>;
 }

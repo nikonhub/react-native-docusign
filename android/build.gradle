@@ -44,6 +44,10 @@ android {
     versionName "1.0.0"
   }
 
+  buildFeatures {
+    buildConfig = true
+  }
+
   lintOptions {
     abortOnError false
   }

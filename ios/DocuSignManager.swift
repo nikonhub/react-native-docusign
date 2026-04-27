@@ -23,17 +23,35 @@ internal struct DocuSignSetupOptions {
 internal final class DocuSignManager: NSObject {
   static let shared = DocuSignManager()
 
-  private var isInitialized = false
+  private var _isInitialized = false
+  private var _hasLoggedIn = false
+  private var _integratorKey: String?
+  private var _hostURL: URL?
+  private var _observersRegistered = false
   private var currentEnvelopeId: String?
   private weak var module: DocuSignModule?
 
-  private var integratorKey: String?
-  private var hostURL: URL?
   private var environment: DocuSignEnvironment = .demo
-  private var hasLoggedIn = false
   private var pendingCompletion: ((Result<SigningOutcome, Error>) -> Void)?
 
   private let stateQueue = DispatchQueue(label: "com.rndocusign.state")
+
+  private var isInitialized: Bool {
+    get { stateQueue.sync { _isInitialized } }
+    set { stateQueue.sync { _isInitialized = newValue } }
+  }
+  private var hasLoggedIn: Bool {
+    get { stateQueue.sync { _hasLoggedIn } }
+    set { stateQueue.sync { _hasLoggedIn = newValue } }
+  }
+  private var integratorKey: String? {
+    get { stateQueue.sync { _integratorKey } }
+    set { stateQueue.sync { _integratorKey = newValue } }
+  }
+  private var hostURL: URL? {
+    get { stateQueue.sync { _hostURL } }
+    set { stateQueue.sync { _hostURL = newValue } }
+  }
 
   private override init() {
     super.init()
@@ -194,19 +212,17 @@ internal final class DocuSignManager: NSObject {
     let tokenAzp = Self.decodeJWTClaim(accessToken, claim: "azp")
       ?? Self.decodeJWTClaim(accessToken, claim: "aud")
       ?? "(unknown)"
+    #if DEBUG
     NSLog("[DocuSign] Calling DSMManager.login with:")
-    NSLog("[DocuSign]   accountId=\(accountId)")
-    NSLog("[DocuSign]   userId=\(userId)")
-    NSLog("[DocuSign]   userName=\(userName)")
-    NSLog("[DocuSign]   email=\(email)")
-    NSLog("[DocuSign]   host=\(effectiveHost.absoluteString)")
     NSLog("[DocuSign]   integratorKey (init)=\(integratorKey)")
     NSLog("[DocuSign]   token azp/aud=\(tokenAzp)")
+    NSLog("[DocuSign]   host=\(effectiveHost.absoluteString)")
     if tokenAzp != "(unknown)" && tokenAzp != integratorKey {
       NSLog("[DocuSign]   ⚠️ MISMATCH: integratorKey != token's azp/aud claim. This is the usual cause of 'Invalid login information'.")
     }
+    #endif
 
-    let diagnostic = "integratorKey=\(integratorKey) tokenAzp=\(tokenAzp) accountId=\(accountId) userId=\(userId) host=\(effectiveHost.absoluteString)"
+    let diagnostic = "integratorKey=\(integratorKey) tokenAzp=\(tokenAzp) host=\(effectiveHost.absoluteString)"
 
     module?.sendEvent("onLoginAttempt", [
       "integratorKey": integratorKey,
@@ -356,6 +372,7 @@ internal final class DocuSignManager: NSObject {
     request.httpMethod = "GET"
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.timeoutInterval = 10
 
     URLSession.shared.dataTask(with: request) { data, response, error in
       if let error = error {
@@ -484,6 +501,11 @@ internal final class DocuSignManager: NSObject {
     }
   }
 
+  /// Presents captive signing from a pre-minted DocuSign recipient-view URL.
+  ///
+  /// The signing URL itself encodes recipient identity via a short-lived token,
+  /// so this path intentionally does NOT require a prior `loginWithAccessToken`.
+  /// `initialize` is still required.
   func presentCaptiveSigningWithUrl(
     signingUrl: String,
     envelopeId: String,
@@ -555,6 +577,16 @@ internal final class DocuSignManager: NSObject {
   }
 
   private func registerNotificationObservers() {
+    var alreadyRegistered = false
+    stateQueue.sync {
+      if _observersRegistered {
+        alreadyRegistered = true
+      } else {
+        _observersRegistered = true
+      }
+    }
+    if alreadyRegistered { return }
+
     let nc = NotificationCenter.default
     nc.addObserver(
       self,
