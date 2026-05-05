@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 import {
   CaptiveSigningParams,
   CaptiveSigningUrlParams,
@@ -20,23 +22,40 @@ export function initialize(config: DocuSignConfig): Promise<void> {
   return DocuSignModule.initialize(config);
 }
 
-export function loginWithAccessToken(params: DocuSignAuthParams): Promise<DocuSignAccountInfo> {
+export function loginWithAccessToken(
+  params: DocuSignAuthParams,
+): Promise<DocuSignAccountInfo> {
   return DocuSignModule.loginWithAccessToken(params);
 }
 
-export function presentCaptiveSigning(params: CaptiveSigningParams): Promise<SigningResult> {
+export function presentCaptiveSigning(
+  params: CaptiveSigningParams,
+): Promise<SigningResult> {
   return DocuSignModule.presentCaptiveSigning(params);
 }
 
 /**
  * Present captive signing from a pre-minted DocuSign recipient-view URL.
  *
+ * Does NOT require a prior {@link loginWithAccessToken} call — the URL itself
+ * encodes recipient identity via a short-lived token. {@link initialize} is
+ * still required.
+ *
  * @platform iOS only. The Android DocuSign SDK (2.1.4) does not expose a
  * public URL-based signing entry point; calling this on Android rejects with
- * `not_implemented`. For cross-platform parity, prefer {@link presentCaptiveSigning}
+ * a clear JS error. For cross-platform parity, prefer {@link presentCaptiveSigning}
  * with the session flow (accessToken + envelopeId + recipient).
  */
-export function presentCaptiveSigningWithUrl(params: CaptiveSigningUrlParams): Promise<SigningResult> {
+export function presentCaptiveSigningWithUrl(
+  params: CaptiveSigningUrlParams,
+): Promise<SigningResult> {
+  if (Platform.OS !== 'ios') {
+    return Promise.reject(
+      new Error(
+        'presentCaptiveSigningWithUrl is iOS-only. Use presentCaptiveSigning + loginWithAccessToken for Android parity.',
+      ),
+    );
+  }
   return DocuSignModule.presentCaptiveSigningWithUrl(params);
 }
 
@@ -48,18 +67,26 @@ export function isLoggedIn(): Promise<boolean> {
   return DocuSignModule.isLoggedIn();
 }
 
-export function addSigningCompleteListener(listener: (event: SigningCompleteEvent) => void): DocuSignSubscription {
+export function addSigningCompleteListener(
+  listener: (event: SigningCompleteEvent) => void,
+): DocuSignSubscription {
   return DocuSignModule.addListener('onSigningComplete', listener);
 }
 
-export function addSigningCancelledListener(listener: (event: SigningCancelledEvent) => void): DocuSignSubscription {
+export function addSigningCancelledListener(
+  listener: (event: SigningCancelledEvent) => void,
+): DocuSignSubscription {
   return DocuSignModule.addListener('onSigningCancelled', listener);
 }
 
-export function addSigningErrorListener(listener: (event: SigningErrorEvent) => void): DocuSignSubscription {
+export function addSigningErrorListener(
+  listener: (event: SigningErrorEvent) => void,
+): DocuSignSubscription {
   return DocuSignModule.addListener('onSigningError', listener);
 }
 
-export function addLoginAttemptListener(listener: (event: LoginAttemptEvent) => void): DocuSignSubscription {
+export function addLoginAttemptListener(
+  listener: (event: LoginAttemptEvent) => void,
+): DocuSignSubscription {
   return DocuSignModule.addListener('onLoginAttempt', listener);
 }

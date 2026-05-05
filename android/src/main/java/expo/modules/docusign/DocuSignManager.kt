@@ -13,6 +13,7 @@ import com.docusign.androidsdk.listeners.DSLogoutListener
 import com.docusign.androidsdk.util.DSMode
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
 internal enum class DocuSignEnvironment(val value: String) {
@@ -40,13 +41,13 @@ internal data class DocuSignAccountInfo(
 )
 
 internal object DocuSignManager {
-  private var isInitialized = false
-  private var hasLoggedIn = false
-  private var module: DocuSignModule? = null
-  private var appContext: Context? = null
-  private var pendingCompletion: ((Result<SigningOutcome>) -> Unit)? = null
-  private var integratorKey: String = ""
-  private var environment: DocuSignEnvironment = DocuSignEnvironment.DEMO
+  @Volatile private var isInitialized = false
+  @Volatile private var hasLoggedIn = false
+  @Volatile private var module: DocuSignModule? = null
+  @Volatile private var appContext: Context? = null
+  @Volatile private var integratorKey: String = ""
+  @Volatile private var environment: DocuSignEnvironment = DocuSignEnvironment.DEMO
+  private val pendingCompletion = AtomicReference<((Result<SigningOutcome>) -> Unit)?>(null)
 
   private enum class UserInfoProbe { OK, UNAUTHORIZED, NETWORK }
 
@@ -68,7 +69,8 @@ internal object DocuSignManager {
       DocuSignEnvironment.PRODUCTION -> DSEnvironment.PRODUCTION_ENVIRONMENT
     }
 
-    DocuSign.init(context.applicationContext, integratorKey, "", "", DSMode.DEBUG)
+    val mode = if (BuildConfig.DEBUG) DSMode.DEBUG else DSMode.PRODUCTION
+    DocuSign.init(context.applicationContext, integratorKey, "", "", mode)
       .setEnvironment(dsEnvironment)
 
     appContext = context.applicationContext
@@ -213,7 +215,10 @@ internal object DocuSignManager {
       return
     }
 
-    pendingCompletion = completion
+    if (!pendingCompletion.compareAndSet(null, completion)) {
+      completion(Result.failure(SigningFailedException("A signing session is already in progress")))
+      return
+    }
 
     try {
       DocuSign.getInstance().getCustomSettingsDelegate()
@@ -258,16 +263,15 @@ internal object DocuSignManager {
         }
       )
     } catch (e: Exception) {
-      pendingCompletion = null
-      completion(Result.failure(SigningFailedException(e.message ?: "Unknown error")))
+      val pending = pendingCompletion.getAndSet(null)
+      pending?.invoke(Result.failure(SigningFailedException(e.message ?: "Unknown error")))
     }
   }
 
   fun handleSigningCompleted(envelopeId: String) {
     val outcome = SigningOutcome(status = "completed", envelopeId = envelopeId)
     module?.emitSigningComplete(envelopeId)
-    pendingCompletion?.invoke(Result.success(outcome))
-    pendingCompletion = null
+    pendingCompletion.getAndSet(null)?.invoke(Result.success(outcome))
   }
 
   fun handleSigningCancelled(envelopeId: String, reason: String?) {
@@ -277,13 +281,11 @@ internal object DocuSignManager {
       errorMessage = reason
     )
     module?.emitSigningCancelled(envelopeId, reason)
-    pendingCompletion?.invoke(Result.success(outcome))
-    pendingCompletion = null
+    pendingCompletion.getAndSet(null)?.invoke(Result.success(outcome))
   }
 
   fun handleSigningError(envelopeId: String?, errorCode: String, errorMessage: String) {
     module?.emitSigningError(envelopeId, errorCode, errorMessage)
-    pendingCompletion?.invoke(Result.failure(SigningFailedException(errorMessage)))
-    pendingCompletion = null
+    pendingCompletion.getAndSet(null)?.invoke(Result.failure(SigningFailedException(errorMessage)))
   }
 }
