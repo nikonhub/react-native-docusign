@@ -4,6 +4,7 @@
     "module": "node16",
     "moduleResolution": "node16",
     "lib": ["ES2020"],
+    "types": ["node"],
     "strict": true,
     "noImplicitAny": true,
     "noImplicitReturns": true,

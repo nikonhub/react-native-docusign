@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.3
+
+### Build / packaging
+
+- **No third-party binaries shipped.** The DocuSign `sdk-pdf-2.1.4.aar` is no longer committed to the repo or included in the npm tarball. The Expo Config Plugin now downloads it directly from DocuSign's public Maven (`docucdn-a.akamaihd.net`) at `expo prebuild` time, strips the pre-generated `com.bumptech.glide.GeneratedAppGlideModuleImpl` class to prevent duplicate-class collisions with `expo-image` and other Glide-based libraries, and writes the stripped result into `node_modules/react-native-docusign/android/libs/`. The existing flatDir injection picks it up unchanged. Result: zero DocuSign IP redistributed; consumers fetch the SDK directly from DocuSign on first prebuild.
+- New `dependencies` entry: `adm-zip` (used by the Config Plugin to strip the upstream AAR in-memory).
+- Added `LICENSE` (MIT). Previously declared in `package.json` but the file was missing.
+- `package.json` adds a `prepublishOnly` hook that runs `npm run build && npm test` so stale builds can never ship.
+
+### Notes for consumers
+
+- After `npm install`, run `npx expo prebuild` (or `expo prebuild --clean`) so the plugin can fetch and place the stripped sdk-pdf AAR. Required network access: `https://docucdn-a.akamaihd.net`.
+- If the host machine cannot reach DocuSign's CDN, the plugin emits a warning and the Android build will fail at the dex step. CI environments must allow outbound HTTPS to that host.
+
 ## 1.0.2
 
 ### Bug fixes

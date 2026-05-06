@@ -1,6 +1,6 @@
 {
   "name": "react-native-docusign",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "React Native / Expo native module wrapping DocuSign iOS and Android SDKs for in-app captive signing",
   "main": "build/index.js",
   "types": "build/index.d.ts",
@@ -18,7 +18,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && tsc -p plugin/tsconfig.build.json",
     "test": "jest",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
     "react-native",
@@ -41,7 +42,9 @@
   "devDependencies": {
     "@react-native/jest-preset": "^0.85.2",
     "@testing-library/react-native": "^13.3.3",
+    "@types/adm-zip": "^0.5.8",
     "@types/jest": "^29.5.14",
+    "@types/node": "^20.19.39",
     "jest": "^29.7.0",
     "jest-expo": "^55.0.17",
     "react-test-renderer": "^19.2.5"
@@ -50,5 +53,8 @@
     "expo": "*",
     "react": "*",
     "react-native": "*"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17"
   }
 }

@@ -61,3 +61,7 @@ plugin/build/
 
 # Jest coverage output
 coverage/
+
+# DocuSign sdk-pdf AAR fetched + stripped at consumer prebuild time by the
+# Config Plugin (plugin/src/index.ts). Never committed; never published.
+android/libs/

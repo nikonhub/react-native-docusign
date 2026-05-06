@@ -11,4 +11,7 @@ __tests__
 /android/src/androidTest/
 /android/src/test/
 /android/build/
+# DocuSign sdk-pdf AAR is fetched + stripped at consumer prebuild time by the
+# Config Plugin. Never published.
+/android/libs/
 /example/

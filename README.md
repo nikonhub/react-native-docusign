@@ -107,6 +107,10 @@ The DocuSign native SDKs are **NOT bundled** inside this npm package. They are d
 - **iOS**: `pod 'DocuSign-iOS-SDK', '~> 4.1.1'` from the public CocoaPods trunk
 - **Android**: `com.docusign:androidsdk:2.1.4` from DocuSign's Maven repository (the config plugin adds the repo automatically)
 
+### Android Glide collision workaround
+
+DocuSign's `com.docusign:sdk-pdf:2.1.4` AAR ships a pre-generated `com.bumptech.glide.GeneratedAppGlideModuleImpl.class` that collides at dex time with any other Glide-based library in the host app (notably `expo-image`, `react-native-fast-image`, and similar). To avoid this without redistributing DocuSign's binary, the Expo Config Plugin downloads `sdk-pdf-2.1.4.aar` directly from DocuSign's public Maven during `expo prebuild`, removes the offending class in-memory, and writes the stripped artifact to `node_modules/react-native-docusign/android/libs/`. The existing flatDir injection picks it up at consumer build time. The download is cached after the first run.
+
 ### What ships inside this package
 
 - TypeScript source + type definitions
