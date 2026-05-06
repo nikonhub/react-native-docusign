@@ -9,7 +9,7 @@
 
 React Native / Expo native module that wraps the official DocuSign iOS and Android SDKs, allowing apps to present the native DocuSign signing UI directly in-app (captive signing).
 
-Built on the Expo Modules API. Works with Expo SDK 55+, bare React Native, and Expo Dev Client.
+Built on the Expo Modules API. Works with Expo SDK 55+ (managed or bare with `expo prebuild`) and Expo Dev Client. Also usable in non-Expo React Native projects after running [`npx install-expo-modules`](https://docs.expo.dev/bare/installing-expo-modules/) to install `expo-modules-core`; in that case, run `expo prebuild` so the Config Plugin can fetch the DocuSign sdk-pdf AAR and inject the iOS / Android build settings, otherwise you must replicate those steps by hand.
 
 > **Unofficial package.** This is a community wrapper. It is not affiliated with or endorsed by DocuSign, Inc. "DocuSign" is a trademark of DocuSign, Inc.
 
