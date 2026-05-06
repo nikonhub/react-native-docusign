@@ -1,5 +1,6 @@
 import ExpoModulesCore
 import UIKit
+import WebKit
 import DocuSignSDK
 
 internal enum DocuSignEnvironment: String {
@@ -204,11 +205,57 @@ internal final class DocuSignManager: NSObject {
       ? Date(timeIntervalSinceNow: TimeInterval(expiresIn))
       : nil
 
-    // Clear any stale SDK state from prior failed login attempts.
-    _ = DSMManager.logout()
-    DSMManager.clearAllWebCookies()
-    self.hasLoggedIn = false
+    // First login: SDK state is fresh, skip the teardown dance entirely.
+    // Subsequent login: tear down cookies + session, THEN fire DSMManager.login.
+    // The previous implementation called clearAllWebCookies (async) and DSMManager.login
+    // back-to-back, which produced a race: the WebView session bootstrapped against
+    // half-cleaned state and DSMEnvelopesManager would silently fail to issue
+    // settings / consumer_disclosure / recipient calls, leaving the captive signing
+    // UI stuck on a spinner with no completion notification.
+    if !hasLoggedIn {
+      performLoginCall(
+        accessToken: accessToken,
+        accountId: accountId,
+        userId: userId,
+        userName: userName,
+        email: email,
+        effectiveHost: effectiveHost,
+        integratorKey: integratorKey,
+        expiryDate: expiryDate,
+        completion: completion
+      )
+      return
+    }
 
+    clearWebCookiesAsync { [weak self] in
+      guard let self = self else { return }
+      _ = DSMManager.logout()
+      self.hasLoggedIn = false
+      self.performLoginCall(
+        accessToken: accessToken,
+        accountId: accountId,
+        userId: userId,
+        userName: userName,
+        email: email,
+        effectiveHost: effectiveHost,
+        integratorKey: integratorKey,
+        expiryDate: expiryDate,
+        completion: completion
+      )
+    }
+  }
+
+  private func performLoginCall(
+    accessToken: String,
+    accountId: String,
+    userId: String,
+    userName: String,
+    email: String,
+    effectiveHost: URL,
+    integratorKey: String,
+    expiryDate: Date?,
+    completion: @escaping (Result<DocuSignAccountInfo, Error>) -> Void
+  ) {
     let tokenAzp = Self.decodeJWTClaim(accessToken, claim: "azp")
       ?? Self.decodeJWTClaim(accessToken, claim: "aud")
       ?? "(unknown)"
@@ -261,6 +308,26 @@ internal final class DocuSignManager: NSObject {
     }
   }
 
+  /// Clears DocuSign SDK cookies plus the WKWebsiteDataStore (cookies, session
+  /// storage, local storage, IndexedDB) and invokes `completion` on the main
+  /// thread once teardown is complete. The DocuSign SDK's `clearAllWebCookies`
+  /// has no completion handler, so we layer `WKWebsiteDataStore.removeData`
+  /// on top to obtain a real signal that teardown finished before re-logging in.
+  private func clearWebCookiesAsync(completion: @escaping () -> Void) {
+    DSMManager.clearAllWebCookies()
+    let dataStore = WKWebsiteDataStore.default()
+    let types: Set<String> = [
+      WKWebsiteDataTypeCookies,
+      WKWebsiteDataTypeSessionStorage,
+      WKWebsiteDataTypeLocalStorage,
+      WKWebsiteDataTypeIndexedDBDatabases
+    ]
+    let since = Date(timeIntervalSince1970: 0)
+    dataStore.removeData(ofTypes: types, modifiedSince: since) {
+      DispatchQueue.main.async { completion() }
+    }
+  }
+
   private func classifyLoginFailure(
     accessToken: String,
     sdkError: Error,
@@ -277,7 +344,7 @@ internal final class DocuSignManager: NSObject {
       case .ok:
         enrichedMsg = "SDK rejected a valid token. Likely causes: Mobile SDK not enabled for integration key \(integratorKey), or iOS bundle ID not whitelisted in DocuSign admin. Contact DocuSign support. (SDK: \(sdkMsg)) | \(diagnostic)"
       case .unauthorized:
-        enrichedMsg = "Access token rejected by DocuSign /oauth/userinfo — re-mint via JWT Bearer Grant with scope=signature impersonation. (SDK: \(sdkMsg)) | \(diagnostic)"
+        enrichedMsg = "Access token rejected by DocuSign /oauth/userinfo. Re-mint via JWT Bearer Grant with scope=signature impersonation. (SDK: \(sdkMsg)) | \(diagnostic)"
       case .network(let netMsg):
         enrichedMsg = "\(sdkMsg) (userinfo probe network error: \(netMsg)) | \(diagnostic)"
       }
@@ -446,6 +513,45 @@ internal final class DocuSignManager: NSObject {
 
   func isLoggedIn() -> Bool {
     return hasLoggedIn
+  }
+
+  /// Tears down any in-flight signing session and the underlying SDK auth
+  /// state so the next `loginWithAccessToken` + `presentCaptiveSigning` pair
+  /// starts from a clean slate. Safe to call when no session is active.
+  ///
+  /// Consumers should call this between captive signing flows (e.g. inside
+  /// the `finally` of their orchestrator hook) to avoid the implicit
+  /// teardown path inside `performLogin`. It is also wired into the JS
+  /// `useDocuSignSigning` hook's `reset()` so React consumers get this for
+  /// free.
+  func endSigningSession(completion: @escaping () -> Void) {
+    // Resolve any in-flight signing promise so the JS side does not hang.
+    var pendingResolved = false
+    stateQueue.sync {
+      if let pending = pendingCompletion {
+        let outcome = SigningOutcome(
+          status: "cancelled",
+          envelopeId: currentEnvelopeId ?? "",
+          errorCode: nil,
+          errorMessage: "session_ended"
+        )
+        pendingCompletion = nil
+        currentEnvelopeId = nil
+        DispatchQueue.main.async { pending(.success(outcome)) }
+        pendingResolved = true
+      }
+    }
+    _ = pendingResolved // silence unused-warning; kept for future telemetry
+
+    clearWebCookiesAsync { [weak self] in
+      guard let self = self else {
+        completion()
+        return
+      }
+      _ = DSMManager.logout()
+      self.hasLoggedIn = false
+      completion()
+    }
   }
 
   func presentCaptiveSigning(

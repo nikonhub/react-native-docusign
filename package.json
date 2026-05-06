@@ -1,6 +1,6 @@
 {
   "name": "react-native-docusign",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "React Native / Expo native module wrapping DocuSign iOS and Android SDKs for in-app captive signing",
   "main": "build/index.js",
   "types": "build/index.d.ts",
@@ -16,7 +16,9 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && tsc -p plugin/tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json && tsc -p plugin/tsconfig.build.json",
+    "test": "jest",
+    "test:coverage": "jest --coverage"
   },
   "keywords": [
     "react-native",
@@ -36,8 +38,14 @@
   "author": "IronTony",
   "license": "MIT",
   "homepage": "https://github.com/IronTony/react-native-docusign",
-  "dependencies": {},
-  "devDependencies": {},
+  "devDependencies": {
+    "@react-native/jest-preset": "^0.85.2",
+    "@testing-library/react-native": "^13.3.3",
+    "@types/jest": "^29.5.14",
+    "jest": "^29.7.0",
+    "jest-expo": "^55.0.17",
+    "react-test-renderer": "^19.2.5"
+  },
   "peerDependencies": {
     "expo": "*",
     "react": "*",

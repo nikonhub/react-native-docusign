@@ -159,5 +159,11 @@ public class DocuSignModule: Module {
     AsyncFunction("isLoggedIn") { (promise: Promise) in
       promise.resolve(DocuSignManager.shared.isLoggedIn())
     }
+
+    AsyncFunction("endSigningSession") { (promise: Promise) in
+      DocuSignManager.shared.endSigningSession {
+        promise.resolve(nil)
+      }
+    }
   }
 }

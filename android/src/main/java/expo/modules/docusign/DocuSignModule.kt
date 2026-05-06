@@ -162,6 +162,11 @@ class DocuSignModule : Module() {
     AsyncFunction("isLoggedIn") { promise: Promise ->
       promise.resolve(DocuSignManager.isLoggedIn())
     }
+
+    AsyncFunction("endSigningSession") { promise: Promise ->
+      DocuSignManager.endSigningSession()
+      promise.resolve(null)
+    }
   }
 
   internal fun emitSigningComplete(envelopeId: String) {

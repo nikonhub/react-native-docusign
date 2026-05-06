@@ -17,7 +17,7 @@ The DocuSign Android SDK (2.1.4) does not expose a public URL-based signing entr
 
 ## One backend response, both platforms
 
-Both iOS and Android consume the **same 13-field session payload** from your backend — there is no platform-specific branching on the client. Mint it once on your BFF, hand it to the module, and the same code path runs on both OSes.
+Both iOS and Android consume the **same 13-field session payload** from your backend. There is no platform-specific branching on the client. Mint it once on your BFF, hand it to the module, and the same code path runs on both OSes.
 
 The mobile module expects exactly these fields:
 
@@ -41,11 +41,12 @@ Full schema and BFF reference implementation: [`docs/BACKEND_GUIDE.md` → Sessi
   - [presentCaptiveSigningWithUrl](#presentcaptivesigningwithurlparams-captivesigningurlparams-promisesigningresult)
   - [logout](#logout-promisevoid)
   - [isLoggedIn](#isloggedin-promiseboolean)
+  - [endSigningSession](#endsigningsession-promisevoid)
   - [Event listeners](#event-listeners)
 - [Types](#types)
 - [Authentication flow](#authentication-flow)
 - [Prefilling document fields](#prefilling-document-fields)
-- [Multi-policy / multi-envelope chaining](#multi-policy--multi-envelope-chaining)
+- [Multi-document / multi-envelope chaining](#multi-document--multi-envelope-chaining)
 - [Error handling](#error-handling)
 - [Security considerations](#security-considerations)
 - [Permissions](#permissions)
@@ -212,7 +213,7 @@ What the plugin does during `expo prebuild`:
 ```ts
 import * as DocuSign from 'react-native-docusign';
 
-async function signCancellationDocument() {
+async function signAgreement() {
   // Step 1: configure the SDK (call once per app lifetime)
   await DocuSign.initialize({
     integratorKey: 'YOUR_INTEGRATOR_KEY',
@@ -223,7 +224,7 @@ async function signCancellationDocument() {
   const session = await fetch('/api/envelopes/signing-session', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ policyId: 'policy_123', reason: 'switching_carrier' }),
+    body: JSON.stringify({ documentId: 'doc_123', requestType: 'standard' }),
   }).then((r) => r.json());
 
   // Step 3: authenticate the SDK
@@ -371,6 +372,14 @@ Logs out of the DocuSign SDK and clears any cached credentials. Call this when t
 
 Returns the current login state. Useful for deciding whether to skip the login step on a subsequent signing attempt.
 
+### `endSigningSession(): Promise<void>`
+
+Tears down any in-flight signing session and the underlying SDK auth state so the next `loginWithAccessToken` + `presentCaptiveSigning` pair starts from a clean slate. Safe to call when no session is active.
+
+Call this between captive signing flows (e.g. inside the `finally` block of your orchestrator) when running multiple envelopes in the same app session. Without it, the package falls back to an implicit teardown inside `performLogin` which has historically (≤ 1.0.1) raced on iOS and caused the captive signing UI to hang on a spinner on the second consecutive open. The 1.0.2 fix sequences that teardown correctly, but calling `endSigningSession` explicitly remains the cleanest pattern.
+
+The `useDocuSignSigning` hook's `reset()` calls this automatically when the SDK has been initialized.
+
 ### Event listeners
 
 In addition to the promise-based API, you can subscribe to events. Events fire for every signing result, including those triggered from other parts of your app.
@@ -418,7 +427,7 @@ For React consumers, the package exports a `useDocuSignSigning` hook that wraps 
 ```tsx
 import { useDocuSignSigning } from 'react-native-docusign';
 
-function CancellationScreen() {
+function SigningScreen() {
   const { state, error, result, startSigning } = useDocuSignSigning({
     config: {
       integratorKey: 'YOUR_INTEGRATOR_KEY',
@@ -493,7 +502,7 @@ const result = await startSigning({
 ### What stays YOUR responsibility
 
 - Fetching the signing session from your backend (every consumer has a different backend)
-- Form state collection (cancellation reason, addresses, dates) BEFORE calling `startSigning`
+- Form state collection (request details, addresses, dates) BEFORE calling `startSigning`
 - Multi-envelope chaining UX (call `startSigning` again with a fresh session)
 - Navigation between screens
 
@@ -644,7 +653,7 @@ Example (backend, pseudo-code):
 
 ```ts
 const envelope = await docusign.envelopes.create({
-  templateId: 'template_cancellation_v1',
+  templateId: 'template_agreement_v1',
   templateRoles: [
     {
       email: 'user@example.com',
@@ -653,11 +662,11 @@ const envelope = await docusign.envelopes.create({
       clientUserId: 'user_123',
       tabs: {
         textTabs: [
-          { tabLabel: 'reason_for_cancellation', value: 'switching_carrier' },
-          { tabLabel: 'new_carrier', value: 'Other Insurance Co.' },
+          { tabLabel: 'request_type', value: 'standard' },
+          { tabLabel: 'counterparty', value: 'Acme Corp.' },
           { tabLabel: 'mailing_address', value: '123 Main St, Anytown, USA' },
         ],
-        dateTabs: [{ tabLabel: 'desired_end_date', value: '2026-05-01' }],
+        dateTabs: [{ tabLabel: 'effective_date', value: '2026-05-01' }],
       },
     },
   ],
@@ -665,16 +674,16 @@ const envelope = await docusign.envelopes.create({
 });
 ```
 
-## Multi-policy / multi-envelope chaining
+## Multi-document / multi-envelope chaining
 
 Because the DocuSign SDK returns control to your app after each signing ceremony, you can easily chain multiple signings in sequence:
 
 ```ts
-async function cancelMultiplePolicies(policies: Policy[]) {
+async function signMultipleDocuments(documents: Document[]) {
   const results: SigningResult[] = [];
 
-  for (const policy of policies) {
-    const session = await fetchSigningSession(policy.id);
+  for (const document of documents) {
+    const session = await fetchSigningSession(document.id);
     await DocuSign.loginWithAccessToken(session);
     const result = await DocuSign.presentCaptiveSigning({
       envelopeId: session.envelopeId,
@@ -691,7 +700,7 @@ async function cancelMultiplePolicies(policies: Policy[]) {
 }
 ```
 
-Between signings, you can also show a confirmation prompt ("cancel another policy?") and only continue if the user agrees.
+Between signings, you can also show a confirmation prompt ("sign another document?") and only continue if the user agrees.
 
 ## Error handling
 

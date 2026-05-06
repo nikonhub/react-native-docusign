@@ -47,6 +47,7 @@ internal object DocuSignManager {
   @Volatile private var appContext: Context? = null
   @Volatile private var integratorKey: String = ""
   @Volatile private var environment: DocuSignEnvironment = DocuSignEnvironment.DEMO
+  @Volatile private var currentEnvelopeId: String? = null
   private val pendingCompletion = AtomicReference<((Result<SigningOutcome>) -> Unit)?>(null)
 
   private enum class UserInfoProbe { OK, UNAUTHORIZED, NETWORK }
@@ -137,7 +138,7 @@ internal object DocuSignManager {
         UserInfoProbe.OK ->
           "SDK rejected a valid token. Likely causes: Mobile SDK not enabled for integration key $integratorKey, or Android package name not whitelisted in DocuSign admin. Contact DocuSign support. (SDK: $sdkMsg) | $diagnostic"
         UserInfoProbe.UNAUTHORIZED ->
-          "Access token rejected by DocuSign /oauth/userinfo — re-mint via JWT Bearer Grant with scope=signature impersonation. (SDK: $sdkMsg) | $diagnostic"
+          "Access token rejected by DocuSign /oauth/userinfo. Re-mint via JWT Bearer Grant with scope=signature impersonation. (SDK: $sdkMsg) | $diagnostic"
         UserInfoProbe.NETWORK ->
           "$sdkMsg | $diagnostic"
       }
@@ -197,6 +198,31 @@ internal object DocuSignManager {
 
   fun isLoggedIn(): Boolean = hasLoggedIn
 
+  /**
+   * Tears down any in-flight signing session and the underlying SDK auth
+   * state so the next `loginWithAccessToken` + `presentCaptiveSigning` pair
+   * starts from a clean slate. Safe to call when no session is active.
+   *
+   * iOS parity: see `DocuSignManager.endSigningSession` in
+   * ios/DocuSignManager.swift. The hang this guards against is iOS-only,
+   * but exposing the method on both platforms keeps the JS surface
+   * symmetric.
+   */
+  fun endSigningSession() {
+    val envelopeId = currentEnvelopeId ?: ""
+    currentEnvelopeId = null
+    pendingCompletion.getAndSet(null)?.invoke(
+      Result.success(
+        SigningOutcome(
+          status = "cancelled",
+          envelopeId = envelopeId,
+          errorMessage = "session_ended"
+        )
+      )
+    )
+    logout()
+  }
+
   fun presentCaptiveSigning(
     activity: Activity,
     envelopeId: String,
@@ -219,6 +245,7 @@ internal object DocuSignManager {
       completion(Result.failure(SigningFailedException("A signing session is already in progress")))
       return
     }
+    currentEnvelopeId = envelopeId
 
     try {
       DocuSign.getInstance().getCustomSettingsDelegate()
@@ -271,6 +298,7 @@ internal object DocuSignManager {
   fun handleSigningCompleted(envelopeId: String) {
     val outcome = SigningOutcome(status = "completed", envelopeId = envelopeId)
     module?.emitSigningComplete(envelopeId)
+    currentEnvelopeId = null
     pendingCompletion.getAndSet(null)?.invoke(Result.success(outcome))
   }
 
@@ -281,11 +309,13 @@ internal object DocuSignManager {
       errorMessage = reason
     )
     module?.emitSigningCancelled(envelopeId, reason)
+    currentEnvelopeId = null
     pendingCompletion.getAndSet(null)?.invoke(Result.success(outcome))
   }
 
   fun handleSigningError(envelopeId: String?, errorCode: String, errorMessage: String) {
     module?.emitSigningError(envelopeId, errorCode, errorMessage)
+    currentEnvelopeId = null
     pendingCompletion.getAndSet(null)?.invoke(Result.failure(SigningFailedException(errorMessage)))
   }
 }

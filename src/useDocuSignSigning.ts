@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   addSigningErrorListener,
+  endSigningSession,
   initialize,
   loginWithAccessToken,
   presentCaptiveSigning,
@@ -156,6 +157,15 @@ export function useDocuSignSigning(
   );
 
   const reset = useCallback(() => {
+    if (initializedRef.current) {
+      // Tear down any in-flight signing session and SDK auth state so the
+      // next startSigning starts clean. Fire-and-forget so reset stays
+      // synchronous from the caller's perspective; errors here are
+      // recoverable (consumer can retry startSigning).
+      void endSigningSession().catch(() => {
+        // swallow: SDK teardown failures should not surface as hook errors
+      });
+    }
     setState(initializedRef.current ? SIGNING_STATE.READY : SIGNING_STATE.IDLE);
     setError(null);
     setResult(null);
