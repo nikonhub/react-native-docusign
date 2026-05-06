@@ -720,7 +720,7 @@ The module rejects promises with coded exceptions you can inspect at the call si
 | Error code          | When                                          | Mitigation                                                     |
 | ------------------- | --------------------------------------------- | -------------------------------------------------------------- |
 | `initialize_failed` | SDK failed to configure                       | Check integrator key and network connectivity                  |
-| `login_failed`      | Access token was rejected                     | Fetch a fresh token from your backend                          |
+| `login_failed`      | Access token rejected, or Keychain misconfigured (iOS) | Fetch a fresh token from your backend; on iOS also verify `AppIdentifierPrefix` is set in `Info.plist` (see [Permissions](#permissions)) |
 | `signing_failed`    | SDK failed to present or complete signing     | Check envelope ID, recipient info, SDK login state             |
 | `not_initialized`   | `initialize()` was not called first           | Call `initialize()` before any other method                    |
 | `not_logged_in`     | `loginWithAccessToken()` was not called first | Call `loginWithAccessToken()` before `presentCaptiveSigning()` |
@@ -756,10 +756,11 @@ try {
 
 The config plugin writes these keys automatically, or you can configure them manually:
 
-| Key                              | Purpose                                                            |
-| -------------------------------- | ------------------------------------------------------------------ |
-| `NSCameraUsageDescription`       | Required when users capture signatures or attach photos via camera |
-| `NSPhotoLibraryUsageDescription` | Required when users attach photos from the photo library           |
+| Key                              | Purpose                                                                                      |
+| -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `NSCameraUsageDescription`       | Required when users capture signatures or attach photos via camera                           |
+| `NSPhotoLibraryUsageDescription` | Required when users attach photos from the photo library                                     |
+| `AppIdentifierPrefix`            | **Required.** Enables the DocuSign iOS SDK to store auth tokens in the Apple Keychain. Without this key, `loginWithAccessToken` fails with `login_failed / unauthorized` even when the token is valid. Set to `$(AppIdentifierPrefix)`; Xcode resolves this to your team ID prefix at build time. |
 
 ### Android `AndroidManifest.xml`
 
@@ -798,6 +799,21 @@ The SDK login state is in-memory and does not survive app restarts. Always call 
 ### Access token expired mid-signing
 
 DocuSign access tokens are valid for about 1 hour. If a token expires while the signing UI is open, the SDK emits an error event and the promise rejects. Catch the error, fetch a fresh session from your backend, and retry.
+
+### `login_failed` on iOS even with a valid token
+
+If `loginWithAccessToken` rejects with `login_failed` (or the SDK logs "unauthorized") but the same token works on Android, the most likely cause is a missing `AppIdentifierPrefix` entry in your `Info.plist`.
+
+The DocuSign iOS SDK uses the Apple Keychain to store auth state. Without `AppIdentifierPrefix`, it cannot access the Keychain group and rejects the login at the SDK level, regardless of token validity.
+
+**Fix:** add this entry to your `Info.plist` (or to `ios.infoPlist` in `app.config.ts` for Expo projects):
+
+```xml
+<key>AppIdentifierPrefix</key>
+<string>$(AppIdentifierPrefix)</string>
+```
+
+Xcode resolves `$(AppIdentifierPrefix)` to your Apple Developer team ID prefix at build time. A native rebuild (`expo prebuild` + `expo run:ios`) is required after adding the key.
 
 ### Signing UI does not appear on iOS
 

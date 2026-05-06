@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.4
+
+### Bug fixes
+
+- **iOS**: Fix endless "we encountered an error, retrying..." loop in the captive signing UI on the second consecutive attempt within the same install. The signing UI registers a service worker on first visit, and `WKWebsiteDataStore.removeData` was being called with an explicit type set that did not include `WKWebsiteDataTypeServiceWorkerRegistrations` or the fetch cache. The stale service worker survived cookie clearing, app force-close, and even SDK-level logout, then intercepted the next signing WebView's fetch calls with stale cached responses. `clearWebCookiesAsync` now passes `WKWebsiteDataStore.allWebsiteDataTypes()`, which wipes service workers, fetch cache, disk cache, and every other WebKit-persisted data type.
+- **iOS**: Always run the WebKit teardown before `DSMManager.login`, including on the first login of a process. The previous "skip teardown when `hasLoggedIn = false`" optimization assumed a fresh process implies fresh WebKit data; that assumption is wrong because `WKWebsiteDataStore` persists across iOS process kills while the in-memory `hasLoggedIn` flag does not. After a force-close, the next login is treated as "first" by the SDK and would skip the wipe, leaving the previous session's service worker behind.
+
+### Build / packaging
+
+- **Android**: Switch `sdk-pdf-2.1.4-stripped` import from `flatDir`-based `implementation(name: ..., ext: 'aar')` to a direct `implementation files("$projectDir/libs/sdk-pdf-2.1.4-stripped.aar")`. Gradle 9.0 no longer honors subproject-scoped `flatDir` when resolving across project boundaries, so the stripped AAR (placed by the Config Plugin) was not being found and the build failed with `Could not find :sdk-pdf-2.1.4-stripped:`.
+
 ## 1.0.3
 
 ### Build / packaging

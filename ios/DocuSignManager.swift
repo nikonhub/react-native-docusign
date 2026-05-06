@@ -205,28 +205,17 @@ internal final class DocuSignManager: NSObject {
       ? Date(timeIntervalSinceNow: TimeInterval(expiresIn))
       : nil
 
-    // First login: SDK state is fresh, skip the teardown dance entirely.
-    // Subsequent login: tear down cookies + session, THEN fire DSMManager.login.
-    // The previous implementation called clearAllWebCookies (async) and DSMManager.login
-    // back-to-back, which produced a race: the WebView session bootstrapped against
-    // half-cleaned state and DSMEnvelopesManager would silently fail to issue
-    // settings / consumer_disclosure / recipient calls, leaving the captive signing
-    // UI stuck on a spinner with no completion notification.
-    if !hasLoggedIn {
-      performLoginCall(
-        accessToken: accessToken,
-        accountId: accountId,
-        userId: userId,
-        userName: userName,
-        email: email,
-        effectiveHost: effectiveHost,
-        integratorKey: integratorKey,
-        expiryDate: expiryDate,
-        completion: completion
-      )
-      return
-    }
-
+    // Always tear down WebKit data + DocuSign auth before DSMManager.login.
+    // Earlier versions skipped this on first login (when hasLoggedIn=false) on the
+    // assumption that a fresh launch implies fresh WebKit data. That assumption is
+    // wrong: WKWebsiteDataStore persists across process kills, so a second launch
+    // after a force-close still carries the previous session's WebKit state — most
+    // critically, the DocuSign signing UI's service worker registration. Without
+    // a wipe, that stale service worker intercepts fetch calls inside the next
+    // signing WebView and produces an endless "we encountered an error, retrying..."
+    // loop even though the new envelope and tokens are valid. The teardown is
+    // sequenced via WKWebsiteDataStore.removeData completion before DSMManager.login
+    // is invoked, so there is no race with the WebView session bootstrap.
     clearWebCookiesAsync { [weak self] in
       guard let self = self else { return }
       _ = DSMManager.logout()
@@ -308,20 +297,31 @@ internal final class DocuSignManager: NSObject {
     }
   }
 
-  /// Clears DocuSign SDK cookies plus the WKWebsiteDataStore (cookies, session
-  /// storage, local storage, IndexedDB) and invokes `completion` on the main
-  /// thread once teardown is complete. The DocuSign SDK's `clearAllWebCookies`
-  /// has no completion handler, so we layer `WKWebsiteDataStore.removeData`
-  /// on top to obtain a real signal that teardown finished before re-logging in.
+  /// Clears DocuSign SDK cookies plus all WKWebsiteDataStore data and invokes
+  /// `completion` on the main thread once teardown is complete. The DocuSign SDK's
+  /// `clearAllWebCookies` has no completion handler, so we layer
+  /// `WKWebsiteDataStore.removeData` on top to obtain a real signal that teardown
+  /// finished before re-logging in.
+  ///
+  /// We pass `WKWebsiteDataStore.allWebsiteDataTypes()` rather than an explicit
+  /// subset because the DocuSign signing UI registers a service worker on first
+  /// visit, and service worker registrations + the fetch cache are stored
+  /// separately from cookies/localStorage/IndexedDB. Clearing only the common
+  /// subset leaves the SW behind on disk, which then intercepts the next signing
+  /// WebView's fetch calls with stale cached responses.
+  ///
+  /// Note: this wipes the **default** `WKWebsiteDataStore`, which is shared by
+  /// every WKWebView in the host process that does not specify a private or
+  /// non-persistent configuration. Host apps that use WKWebView for other
+  /// content (OAuth flows, in-app browsers, help centers) will have those
+  /// WebViews' cookies, caches, and service workers cleared whenever
+  /// `loginWithAccessToken` runs. If you need to isolate DocuSign's WebKit
+  /// state from the rest of your app, use a non-default data store for those
+  /// other WebViews.
   private func clearWebCookiesAsync(completion: @escaping () -> Void) {
     DSMManager.clearAllWebCookies()
     let dataStore = WKWebsiteDataStore.default()
-    let types: Set<String> = [
-      WKWebsiteDataTypeCookies,
-      WKWebsiteDataTypeSessionStorage,
-      WKWebsiteDataTypeLocalStorage,
-      WKWebsiteDataTypeIndexedDBDatabases
-    ]
+    let types = WKWebsiteDataStore.allWebsiteDataTypes()
     let since = Date(timeIntervalSince1970: 0)
     dataStore.removeData(ofTypes: types, modifiedSince: since) {
       DispatchQueue.main.async { completion() }
