@@ -1,5 +1,12 @@
 # react-native-docusign
 
+[![npm version](https://img.shields.io/npm/v/react-native-docusign.svg?style=flat-square)](https://www.npmjs.com/package/react-native-docusign)
+[![npm downloads](https://img.shields.io/npm/dm/react-native-docusign.svg?style=flat-square)](https://www.npmjs.com/package/react-native-docusign)
+[![license](https://img.shields.io/npm/l/react-native-docusign.svg?style=flat-square)](LICENSE)
+[![platforms](https://img.shields.io/badge/platform-ios%20%7C%20android-blue?style=flat-square)](#)
+[![types](https://img.shields.io/badge/types-TypeScript-blue?style=flat-square)](#)
+[![Expo SDK](https://img.shields.io/badge/Expo%20SDK-55%2B-000020?style=flat-square&logo=expo)](https://docs.expo.dev/)
+
 React Native / Expo native module that wraps the official DocuSign iOS and Android SDKs, allowing apps to present the native DocuSign signing UI directly in-app (captive signing).
 
 Built on the Expo Modules API. Works with Expo SDK 55+, bare React Native, and Expo Dev Client.
