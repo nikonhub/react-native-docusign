@@ -167,6 +167,11 @@ class DocuSignModule : Module() {
       DocuSignManager.endSigningSession()
       promise.resolve(null)
     }
+
+    AsyncFunction("reset") { promise: Promise ->
+      DocuSignManager.reset()
+      promise.resolve(null)
+    }
   }
 
   internal fun emitSigningComplete(envelopeId: String) {

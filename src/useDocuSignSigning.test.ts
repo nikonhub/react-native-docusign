@@ -19,6 +19,7 @@ jest.mock('./api', () => ({
   presentCaptiveSigning: jest.fn(),
   presentCaptiveSigningWithUrl: jest.fn(),
   endSigningSession: jest.fn(),
+  reset: jest.fn(),
   addSigningErrorListener: jest.fn(() => ({ remove: jest.fn() })),
 }));
 

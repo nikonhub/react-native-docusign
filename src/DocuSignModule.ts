@@ -22,6 +22,7 @@ declare class DocuSignModule extends NativeModule<DocuSignModuleEvents> {
   logout(): Promise<void>;
   isLoggedIn(): Promise<boolean>;
   endSigningSession(): Promise<void>;
+  reset(): Promise<void>;
 }
 
 export default requireNativeModule<DocuSignModule>('DocuSign');

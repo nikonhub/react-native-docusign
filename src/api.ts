@@ -82,6 +82,24 @@ export function endSigningSession(): Promise<void> {
   return DocuSignModule.endSigningSession();
 }
 
+/**
+ * Full SDK teardown. Resolves any in-flight signing promise as cancelled,
+ * wipes WebKit data (iOS), calls `logout()`, removes notification observers
+ * (iOS), and flips the internal `isInitialized` flag to `false` so the next
+ * `initialize()` call re-runs the underlying SDK setup against a fresh state.
+ *
+ * Use this when you want a hard reset between flows (error recovery,
+ * switching DocuSign accounts, after an app-level logout). For routine
+ * teardown between consecutive captive signing flows on the same auth,
+ * prefer {@link endSigningSession} which keeps the SDK initialized and
+ * skips the observer churn.
+ *
+ * Safe to call when the SDK was never initialized: returns immediately.
+ */
+export function reset(): Promise<void> {
+  return DocuSignModule.reset();
+}
+
 export function addSigningCompleteListener(
   listener: (event: SigningCompleteEvent) => void,
 ): DocuSignSubscription {

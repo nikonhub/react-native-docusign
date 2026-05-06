@@ -165,5 +165,11 @@ public class DocuSignModule: Module {
         promise.resolve(nil)
       }
     }
+
+    AsyncFunction("reset") { (promise: Promise) in
+      DocuSignManager.shared.reset {
+        promise.resolve(nil)
+      }
+    }
   }
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5
+
+### New features
+
+- New `reset()` API on iOS and Android. Heavier counterpart to `endSigningSession`: resolves any in-flight signing promise as cancelled, wipes WebKit data on iOS (cookies, service workers, fetch cache, IndexedDB, etc.), calls `logout()`, removes notification observers, and flips the internal `isInitialized` flag to `false` so the next `initialize()` call re-runs the underlying SDK setup against a fresh state. Use it for hard resets (error recovery, switching DocuSign accounts, app-level logout). For routine per-flow teardown on the same auth, prefer `endSigningSession`, which keeps the SDK initialized and avoids the observer churn.
+
 ## 1.0.4
 
 ### Bug fixes

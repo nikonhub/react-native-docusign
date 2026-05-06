@@ -49,6 +49,7 @@ Full schema and BFF reference implementation: [`docs/BACKEND_GUIDE.md` → Sessi
   - [logout](#logout-promisevoid)
   - [isLoggedIn](#isloggedin-promiseboolean)
   - [endSigningSession](#endsigningsession-promisevoid)
+  - [reset](#reset-promisevoid)
   - [Event listeners](#event-listeners)
 - [Types](#types)
 - [Authentication flow](#authentication-flow)
@@ -390,6 +391,21 @@ Tears down any in-flight signing session and the underlying SDK auth state so th
 Call this between captive signing flows (e.g. inside the `finally` block of your orchestrator) when running multiple envelopes in the same app session. Without it, the package falls back to an implicit teardown inside `performLogin` which has historically (≤ 1.0.1) raced on iOS and caused the captive signing UI to hang on a spinner on the second consecutive open. The 1.0.2 fix sequences that teardown correctly, but calling `endSigningSession` explicitly remains the cleanest pattern.
 
 The `useDocuSignSigning` hook's `reset()` calls this automatically when the SDK has been initialized.
+
+### `reset(): Promise<void>`
+
+Full SDK teardown. Heavier counterpart to `endSigningSession`: resolves any in-flight signing promise as cancelled, wipes WebKit data on iOS (cookies, service workers, fetch cache, IndexedDB, etc.), calls `logout()`, removes notification observers (iOS), and flips the internal `isInitialized` flag to `false` so the next `initialize()` call re-runs the underlying SDK setup against a fresh state.
+
+Use this when you want a hard reset between flows (error recovery, switching DocuSign accounts, after an app-level logout). For routine teardown between consecutive captive signing flows on the same auth, prefer `endSigningSession`, which keeps the SDK initialized and skips the observer churn.
+
+Safe to call when the SDK was never initialized: returns immediately without touching the underlying SDK.
+
+| Use case | Recommended call |
+| --- | --- |
+| Between captive signing flows in the same app session | `endSigningSession` |
+| After an error you want to recover from | `reset` |
+| Switching DocuSign accounts / integrator keys | `reset` |
+| App-level logout | `reset` |
 
 ### Event listeners
 

@@ -554,6 +554,71 @@ internal final class DocuSignManager: NSObject {
     }
   }
 
+  /// Full SDK teardown: a heavier counterpart to `endSigningSession`. Resolves
+  /// any in-flight signing promise as `cancelled`, wipes WebKit data (cookies,
+  /// service workers, fetch cache, etc.), calls `DSMManager.logout()`, removes
+  /// notification observers, and resets every internal state flag including
+  /// `_isInitialized` and `_observersRegistered`. The next `initialize()` call
+  /// will run `DSMManager.setup(withConfiguration:)` again, giving the SDK a
+  /// completely fresh slate.
+  ///
+  /// Use this when you want a hard reset between flows (e.g. error recovery,
+  /// switching DocuSign accounts, or after an app-level logout). For routine
+  /// teardown between consecutive captive signing flows on the same auth,
+  /// prefer `endSigningSession`, which keeps the SDK initialized and skips
+  /// the observer churn.
+  ///
+  /// Safe to call when the SDK was never initialized: returns immediately
+  /// without touching DSMManager.
+  func reset(completion: @escaping () -> Void) {
+    stateQueue.sync {
+      if let pending = pendingCompletion {
+        let outcome = SigningOutcome(
+          status: "cancelled",
+          envelopeId: currentEnvelopeId ?? "",
+          errorCode: nil,
+          errorMessage: "reset"
+        )
+        pendingCompletion = nil
+        currentEnvelopeId = nil
+        DispatchQueue.main.async { pending(.success(outcome)) }
+      }
+    }
+
+    let needsTeardown = stateQueue.sync { _isInitialized || _hasLoggedIn }
+    guard needsTeardown else {
+      completion()
+      return
+    }
+
+    if !Thread.isMainThread {
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self else { completion(); return }
+        self.reset(completion: completion)
+      }
+      return
+    }
+
+    clearWebCookiesAsync { [weak self] in
+      guard let self = self else { completion(); return }
+      _ = DSMManager.logout()
+      NotificationCenter.default.removeObserver(self)
+      // Use stateQueue.async (not sync) for the state reset. We are on main
+      // here (clearWebCookiesAsync's completion is dispatched on main), and a
+      // nested stateQueue.sync from main while another thread holds the queue
+      // is the classic deadlock recipe. async serializes the writes safely
+      // without blocking, then hops back to main to fire the completion.
+      self.stateQueue.async {
+        self._isInitialized = false
+        self._hasLoggedIn = false
+        self._integratorKey = nil
+        self._hostURL = nil
+        self._observersRegistered = false
+        DispatchQueue.main.async { completion() }
+      }
+    }
+  }
+
   func presentCaptiveSigning(
     envelopeId: String,
     recipientUserName: String,

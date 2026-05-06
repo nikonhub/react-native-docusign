@@ -223,6 +223,34 @@ internal object DocuSignManager {
     logout()
   }
 
+  /**
+   * Full SDK teardown. Resolves any in-flight signing promise as cancelled,
+   * calls `logout()`, and flips `isInitialized` back to `false` so the next
+   * `initialize()` call runs `DocuSign.init(...)` against a fresh state.
+   *
+   * Use this when you want a hard reset between flows (error recovery,
+   * switching DocuSign accounts, app-level logout). For routine teardown
+   * between consecutive captive signing flows on the same auth, prefer
+   * `endSigningSession`.
+   *
+   * Safe to call when the SDK was never initialized.
+   */
+  fun reset() {
+    val envelopeId = currentEnvelopeId ?: ""
+    currentEnvelopeId = null
+    pendingCompletion.getAndSet(null)?.invoke(
+      Result.success(
+        SigningOutcome(
+          status = "cancelled",
+          envelopeId = envelopeId,
+          errorMessage = "reset"
+        )
+      )
+    )
+    logout()
+    isInitialized = false
+  }
+
   fun presentCaptiveSigning(
     activity: Activity,
     envelopeId: String,
