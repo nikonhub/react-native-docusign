@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/IronTony/react-native-docusign/main/docs/img/banner-dark.svg" alt="react-native-docusign" />
+</p>
+
 # react-native-docusign
 
 [![npm version](https://img.shields.io/npm/v/react-native-docusign.svg?style=flat-square)](https://www.npmjs.com/package/react-native-docusign)
@@ -703,7 +707,9 @@ const envelope = await docusign.envelopes.create({
 
 ## Multi-document / multi-envelope chaining
 
-Because the DocuSign SDK returns control to your app after each signing ceremony, you can easily chain multiple signings in sequence:
+Because the DocuSign SDK returns control to your app after each signing ceremony, you can chain multiple signings in sequence.
+
+### Minimal example
 
 ```ts
 async function signMultipleDocuments(documents: Document[]) {
@@ -721,6 +727,37 @@ async function signMultipleDocuments(documents: Document[]) {
     results.push(result);
 
     if (result.status !== 'completed') break;
+  }
+
+  return results;
+}
+```
+
+### Production-grade example with `endSigningSession`
+
+Between signing ceremonies on the same app session, call [`endSigningSession`](#endsigningsession-promisevoid) so the next `loginWithAccessToken` + `presentCaptiveSigning` pair starts from a clean SDK state. This avoids the iOS WebKit race that caused captive signing to hang on the second consecutive open in versions ≤ 1.0.1. Always run it in a `finally` block so it executes on cancel and error paths too.
+
+```ts
+async function signMultipleDocumentsSafe(documents: Document[]) {
+  const results: SigningResult[] = [];
+
+  for (const document of documents) {
+    const session = await fetchSigningSession(document.id);
+
+    try {
+      await DocuSign.loginWithAccessToken(session);
+      const result = await DocuSign.presentCaptiveSigning({
+        envelopeId: session.envelopeId,
+        recipientUserName: session.userName,
+        recipientEmail: session.email,
+        recipientClientUserId: session.recipientClientUserId,
+      });
+      results.push(result);
+
+      if (result.status !== 'completed') break;
+    } finally {
+      await DocuSign.endSigningSession();
+    }
   }
 
   return results;
@@ -880,9 +917,9 @@ Create a free DocuSign developer account at https://developers.docusign.com. It 
 
 Configure a DocuSign Connect webhook that points to your backend. DocuSign will push envelope status updates (sent, delivered, completed, declined, voided) as they happen. Use the webhook as your source of truth and treat the mobile-side `SigningResult` as a UX signal only.
 
-### Why is the DocuSign SDK so large?
+### How much does the DocuSign SDK add to my app bundle?
 
-The DocuSign native SDKs include a full PDF viewer, signature pad, form renderer, and offline sync engine. Combined, they add roughly 30 to 50 MB per platform to your app bundle. DocuSign reduced the iOS SDK size by about 75% in v4.0.0; the current size is considered the minimum viable footprint.
+This npm package itself is under 1 MB (TypeScript + native bridge sources only, see [SDK bundling policy](#sdk-bundling-policy)). The size impact comes from the upstream DocuSign native SDKs that consumers pull from CocoaPods (iOS) and DocuSign's Maven repo (Android) at consumer build time. They add tens of MB per platform: full PDF viewer, signature pad, form renderer, and offline sync engine. Measure your own delta by running `du -sh` on your release IPA / APK before and after adding the dependency.
 
 ### Can I ship this alongside `react-native-pdf` or another PDF viewer?
 
